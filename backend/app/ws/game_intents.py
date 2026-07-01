@@ -1,8 +1,8 @@
 """In-deal WS intents (plan section 8, phase 4): draw/meld/steal/discard.
 
 Dispatches onto the pure engine (apply_action) against the live GameState
-kept in Redis. Meld/steal/discard intents and deal scoring land in the
-following steps -- this one wires up draw_deck/draw_discard only.
+kept in Redis. Steal/discard intents and deal scoring land in the following
+steps -- this one wires up draw_deck/draw_discard/create_meld/add_to_meld.
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Game
-from app.engine.actions import Action, DrawDeck, DrawDiscard
+from app.engine.actions import Action, AddToMeld, CreateMeld, DrawDeck, DrawDiscard
 from app.engine.engine import GameState, apply_action
 from app.engine.errors import IllegalActionError
 from app.redis_store import RedisGameStore
 
-GAME_INTENTS = frozenset({"draw_deck", "draw_discard"})
+GAME_INTENTS = frozenset({"draw_deck", "draw_discard", "create_meld", "add_to_meld"})
 
 
 @dataclass
@@ -33,6 +33,12 @@ def _build_action(intent: str, data: dict) -> Action:
         return DrawDeck()
     if intent == "draw_discard":
         return DrawDiscard()
+    if intent == "create_meld":
+        return CreateMeld(card_ids=list(data.get("card_ids", [])))
+    if intent == "add_to_meld":
+        return AddToMeld(
+            meld_id=data.get("meld_id", ""), card_ids=list(data.get("card_ids", []))
+        )
     raise IllegalActionError(f"unknown intent {intent!r}")
 
 
