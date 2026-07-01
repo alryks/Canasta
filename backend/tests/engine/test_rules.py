@@ -21,7 +21,11 @@ def joker(tag: str = "") -> Card:
 
 
 def test_build_set_from_naturals() -> None:
-    cards = [nat(Rank.SEVEN, Suit.SPADES), nat(Rank.SEVEN, Suit.HEARTS), nat(Rank.SEVEN, Suit.CLUBS)]
+    cards = [
+        nat(Rank.SEVEN, Suit.SPADES),
+        nat(Rank.SEVEN, Suit.HEARTS),
+        nat(Rank.SEVEN, Suit.CLUBS),
+    ]
     meld = build_new_meld("m1", "teamA", MeldKind.SET, cards)
     assert meld.kind == MeldKind.SET
     assert meld.rank_or_suit_anchor == Rank.SEVEN.value
@@ -29,7 +33,11 @@ def test_build_set_from_naturals() -> None:
 
 
 def test_set_rejects_mixed_ranks() -> None:
-    cards = [nat(Rank.SEVEN, Suit.SPADES), nat(Rank.EIGHT, Suit.HEARTS), nat(Rank.SEVEN, Suit.CLUBS)]
+    cards = [
+        nat(Rank.SEVEN, Suit.SPADES),
+        nat(Rank.EIGHT, Suit.HEARTS),
+        nat(Rank.SEVEN, Suit.CLUBS),
+    ]
     with pytest.raises(IllegalActionError):
         build_new_meld("m1", "teamA", MeldKind.SET, cards)
 
@@ -47,7 +55,11 @@ def test_meld_requires_at_least_3_cards() -> None:
 
 
 def test_two_cannot_anchor_a_natural_set() -> None:
-    cards = [nat(Rank.TWO, Suit.SPADES, "n1"), nat(Rank.TWO, Suit.HEARTS, "n2"), nat(Rank.TWO, Suit.CLUBS, "n3")]
+    cards = [
+        nat(Rank.TWO, Suit.SPADES, "n1"),
+        nat(Rank.TWO, Suit.HEARTS, "n2"),
+        nat(Rank.TWO, Suit.CLUBS, "n3"),
+    ]
     # twos are always wild -- there is no such thing as a "natural" two
     assert cards[0].is_wild
 
@@ -56,7 +68,11 @@ def test_two_cannot_anchor_a_natural_set() -> None:
 
 
 def test_build_sequence_from_naturals() -> None:
-    cards = [nat(Rank.FOUR, Suit.SPADES), nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES)]
+    cards = [
+        nat(Rank.FOUR, Suit.SPADES),
+        nat(Rank.FIVE, Suit.SPADES),
+        nat(Rank.SIX, Suit.SPADES),
+    ]
     meld = build_new_meld("m2", "teamA", MeldKind.SEQUENCE, cards)
     assert meld.rank_or_suit_anchor == f"{Suit.SPADES.value}:{Rank.FOUR.value}"
     assert [c.rank for c in meld.slots] == [Rank.FOUR, Rank.FIVE, Rank.SIX]
@@ -71,14 +87,23 @@ def test_sequence_wild_fills_gap() -> None:
 
 
 def test_sequence_rejects_mixed_suit() -> None:
-    cards = [nat(Rank.FOUR, Suit.SPADES), nat(Rank.FIVE, Suit.HEARTS), nat(Rank.SIX, Suit.SPADES)]
+    cards = [
+        nat(Rank.FOUR, Suit.SPADES),
+        nat(Rank.FIVE, Suit.HEARTS),
+        nat(Rank.SIX, Suit.SPADES),
+    ]
     with pytest.raises(IllegalActionError):
         build_new_meld("m4", "teamA", MeldKind.SEQUENCE, cards)
 
 
 def test_sequence_rejects_gap_too_large_to_bridge() -> None:
     # FOUR..ACE spans the entire 11-rank window; only 2 wilds can't cover it.
-    cards = [nat(Rank.FOUR, Suit.SPADES), nat(Rank.ACE, Suit.SPADES), two(Suit.SPADES), two(Suit.HEARTS, "b")]
+    cards = [
+        nat(Rank.FOUR, Suit.SPADES),
+        nat(Rank.ACE, Suit.SPADES),
+        two(Suit.SPADES),
+        two(Suit.HEARTS, "b"),
+    ]
     with pytest.raises(IllegalActionError):
         build_new_meld("m5", "teamA", MeldKind.SEQUENCE, cards)
 
@@ -104,7 +129,14 @@ def test_wild_canasta_of_twos_and_jokers() -> None:
 
 def test_add_to_meld_blocks_other_team() -> None:
     meld = build_new_meld(
-        "m8", "teamA", MeldKind.SET, [nat(Rank.SEVEN, Suit.SPADES, "1"), nat(Rank.SEVEN, Suit.HEARTS, "2"), nat(Rank.SEVEN, Suit.CLUBS, "3")]
+        "m8",
+        "teamA",
+        MeldKind.SET,
+        [
+            nat(Rank.SEVEN, Suit.SPADES, "1"),
+            nat(Rank.SEVEN, Suit.HEARTS, "2"),
+            nat(Rank.SEVEN, Suit.CLUBS, "3"),
+        ],
     )
     with pytest.raises(IllegalActionError):
         add_to_meld(meld, "teamB", [nat(Rank.SEVEN, Suit.DIAMONDS, "4")])
@@ -119,21 +151,38 @@ def test_add_to_meld_blocks_closed_canasta() -> None:
 
 
 def test_add_to_meld_extends_set() -> None:
-    cards = [nat(Rank.SEVEN, Suit.SPADES, "1"), nat(Rank.SEVEN, Suit.HEARTS, "2"), nat(Rank.SEVEN, Suit.CLUBS, "3")]
+    cards = [
+        nat(Rank.SEVEN, Suit.SPADES, "1"),
+        nat(Rank.SEVEN, Suit.HEARTS, "2"),
+        nat(Rank.SEVEN, Suit.CLUBS, "3"),
+    ]
     meld = build_new_meld("m10", "teamA", MeldKind.SET, cards)
     updated = add_to_meld(meld, "teamA", [nat(Rank.SEVEN, Suit.DIAMONDS, "4")])
     assert updated.size == 4
 
 
 def test_add_to_meld_extends_sequence_upward() -> None:
-    cards = [nat(Rank.FOUR, Suit.SPADES), nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES)]
+    cards = [
+        nat(Rank.FOUR, Suit.SPADES),
+        nat(Rank.FIVE, Suit.SPADES),
+        nat(Rank.SIX, Suit.SPADES),
+    ]
     meld = build_new_meld("m11", "teamA", MeldKind.SEQUENCE, cards)
     updated = add_to_meld(meld, "teamA", [nat(Rank.SEVEN, Suit.SPADES)])
-    assert [c.rank for c in updated.slots] == [Rank.FOUR, Rank.FIVE, Rank.SIX, Rank.SEVEN]
+    assert [c.rank for c in updated.slots] == [
+        Rank.FOUR,
+        Rank.FIVE,
+        Rank.SIX,
+        Rank.SEVEN,
+    ]
 
 
 def test_add_to_meld_rejects_wrong_suit_for_sequence() -> None:
-    cards = [nat(Rank.FOUR, Suit.SPADES), nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES)]
+    cards = [
+        nat(Rank.FOUR, Suit.SPADES),
+        nat(Rank.FIVE, Suit.SPADES),
+        nat(Rank.SIX, Suit.SPADES),
+    ]
     meld = build_new_meld("m12", "teamA", MeldKind.SEQUENCE, cards)
     with pytest.raises(IllegalActionError):
         add_to_meld(meld, "teamA", [nat(Rank.SEVEN, Suit.HEARTS)])
@@ -153,7 +202,10 @@ def test_steal_wild_from_set_succeeds() -> None:
     meld, wild = _dirty_set_with_wild()
     replacement = nat(Rank.SEVEN, Suit.DIAMONDS, "repl")
     updated, stolen = steal_wild(
-        meld, stealing_team_id="teamA", wild_card_id=wild.id, replacement_card=replacement
+        meld,
+        stealing_team_id="teamA",
+        wild_card_id=wild.id,
+        replacement_card=replacement,
     )
     assert stolen.id == wild.id
     assert replacement in updated.slots
@@ -165,7 +217,10 @@ def test_steal_wild_blocks_own_team() -> None:
     replacement = nat(Rank.SEVEN, Suit.DIAMONDS, "repl")
     with pytest.raises(IllegalActionError):
         steal_wild(
-            meld, stealing_team_id="teamB", wild_card_id=wild.id, replacement_card=replacement
+            meld,
+            stealing_team_id="teamB",
+            wild_card_id=wild.id,
+            replacement_card=replacement,
         )
 
 

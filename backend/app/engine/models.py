@@ -173,7 +173,9 @@ class Meld:
     id: str
     team_id: str
     kind: MeldKind
-    rank_or_suit_anchor: str  # rank value for SET, suit value for SEQUENCE, "" for WILD_CANASTA
+    rank_or_suit_anchor: (
+        str  # rank value for SET, suit value for SEQUENCE, "" for WILD_CANASTA
+    )
     slots: list[Card | None] = field(default_factory=list)
 
     @property

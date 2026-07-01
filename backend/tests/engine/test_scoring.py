@@ -25,7 +25,9 @@ def black_three(tag: str = "") -> Card:
 def test_scenario_clean_canasta_not_exiting() -> None:
     # 7 natural sevens: 7*5=35 base + 500 clean bonus.
     slots = [nat(Rank.SEVEN, Suit.SPADES, str(i)) for i in range(7)]
-    meld = Meld(id="m1", team_id="A", kind=MeldKind.SET, rank_or_suit_anchor="7", slots=slots)
+    meld = Meld(
+        id="m1", team_id="A", kind=MeldKind.SET, rank_or_suit_anchor="7", slots=slots
+    )
     team_table = TeamTable(team_id="A", melds=[meld], is_opened=True)
 
     hand = [red_three(), black_three(), nat(Rank.EIGHT, Suit.CLUBS)]
@@ -42,7 +44,9 @@ def test_scenario_clean_canasta_not_exiting() -> None:
 def test_scenario_no_canasta_table_cards_count_negative() -> None:
     # Partial meld of 3 eights (15 points), no canasta -> counts as minus.
     slots = [nat(Rank.EIGHT, Suit.SPADES, str(i)) for i in range(3)]
-    meld = Meld(id="m2", team_id="B", kind=MeldKind.SET, rank_or_suit_anchor="8", slots=slots)
+    meld = Meld(
+        id="m2", team_id="B", kind=MeldKind.SET, rank_or_suit_anchor="8", slots=slots
+    )
     team_table = TeamTable(team_id="B", melds=[meld], is_opened=True)
 
     hand = [nat(Rank.TEN, Suit.SPADES), nat(Rank.JACK, Suit.HEARTS)]  # 10+10=20
@@ -60,7 +64,9 @@ def test_scenario_clean_exit_with_dirty_canasta() -> None:
         two(Suit.HEARTS, "a"),
         two(Suit.DIAMONDS, "b"),
     ]
-    meld = Meld(id="m3", team_id="C", kind=MeldKind.SET, rank_or_suit_anchor="7", slots=slots)
+    meld = Meld(
+        id="m3", team_id="C", kind=MeldKind.SET, rank_or_suit_anchor="7", slots=slots
+    )
     team_table = TeamTable(team_id="C", melds=[meld], is_opened=True)
 
     result = score_team_deal(team_table, [], went_out=True, exit_type=ExitType.CLEAN)
@@ -76,7 +82,11 @@ def test_scenario_dirty_exit_with_wild_canasta() -> None:
     # 5 twos + 2 jokers: 5*10+2*50=150 base, wild canasta bonus 1000.
     slots = [two(Suit.HEARTS, str(i)) for i in range(5)] + [joker("a"), joker("b")]
     meld = Meld(
-        id="m4", team_id="D", kind=MeldKind.WILD_CANASTA, rank_or_suit_anchor="", slots=slots
+        id="m4",
+        team_id="D",
+        kind=MeldKind.WILD_CANASTA,
+        rank_or_suit_anchor="",
+        slots=slots,
     )
     team_table = TeamTable(team_id="D", melds=[meld], is_opened=True)
 

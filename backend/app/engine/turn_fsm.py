@@ -47,22 +47,32 @@ def draw_from_discard(turn_state: TurnState, top_of_discard: Card) -> TurnState:
 
 def record_meld_created(turn_state: TurnState) -> TurnState:
     if turn_state.phase != TurnPhase.ACT:
-        raise IllegalActionError(f"cannot create a meld during phase {turn_state.phase}")
-    return replace(turn_state, melds_created_this_turn=turn_state.melds_created_this_turn + 1)
+        raise IllegalActionError(
+            f"cannot create a meld during phase {turn_state.phase}"
+        )
+    return replace(
+        turn_state, melds_created_this_turn=turn_state.melds_created_this_turn + 1
+    )
 
 
 def concede_penalty(turn_state: TurnState) -> TurnState:
     """FR-22.1/22.2: 'не могу выложить' — forces DISCARD to be allowed, -1000 penalty."""
     if turn_state.phase != TurnPhase.ACT:
-        raise IllegalActionError(f"cannot concede_penalty during phase {turn_state.phase}")
+        raise IllegalActionError(
+            f"cannot concede_penalty during phase {turn_state.phase}"
+        )
     return replace(turn_state, pending_penalty=True)
 
 
 def _pickup_requirement_met(turn_state: TurnState) -> bool:
-    return not turn_state.must_meld_after_pickup or turn_state.melds_created_this_turn > 0
+    return (
+        not turn_state.must_meld_after_pickup or turn_state.melds_created_this_turn > 0
+    )
 
 
-def can_discard(turn_state: TurnState, *, team_opened: bool, threshold_met: bool) -> bool:
+def can_discard(
+    turn_state: TurnState, *, team_opened: bool, threshold_met: bool
+) -> bool:
     if turn_state.phase != TurnPhase.ACT:
         return False
     if turn_state.pending_penalty:
@@ -80,7 +90,9 @@ def discard(
 ) -> TurnState:
     if turn_state.phase != TurnPhase.ACT:
         raise IllegalActionError(f"cannot discard during phase {turn_state.phase}")
-    if not can_discard(turn_state, team_opened=team_opened, threshold_met=threshold_met):
+    if not can_discard(
+        turn_state, team_opened=team_opened, threshold_met=threshold_met
+    ):
         raise IllegalActionError(
             "discard blocked: pickup meld requirement or opening threshold not met"
         )

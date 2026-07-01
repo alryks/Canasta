@@ -29,7 +29,9 @@ def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
 
     suit = naturals[0].suit
     if any(c.suit != suit for c in naturals):
-        raise IllegalActionError("all natural cards in a sequence must share the same suit")
+        raise IllegalActionError(
+            "all natural cards in a sequence must share the same suit"
+        )
 
     indices = sorted(MELDABLE_RANKS.index(c.rank) for c in naturals)
     if len(set(indices)) != len(indices):
@@ -39,7 +41,9 @@ def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
     window_needed = high - low + 1
     extra = len(cards) - window_needed
     if extra < 0:
-        raise IllegalActionError("not enough wild cards to bridge the gaps in this sequence")
+        raise IllegalActionError(
+            "not enough wild cards to bridge the gaps in this sequence"
+        )
     low_room = low
     high_room = len(MELDABLE_RANKS) - 1 - high
     if extra > low_room + high_room:
@@ -58,7 +62,9 @@ def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
     return anchor_start, [c for c in slots if c is not None]
 
 
-def build_new_meld(meld_id: str, team_id: str, kind: MeldKind, cards: list[Card]) -> Meld:
+def build_new_meld(
+    meld_id: str, team_id: str, kind: MeldKind, cards: list[Card]
+) -> Meld:
     if len(cards) < 3:
         raise IllegalActionError("a new meld needs at least 3 cards")
 
@@ -66,21 +72,29 @@ def build_new_meld(meld_id: str, team_id: str, kind: MeldKind, cards: list[Card]
         if not all(c.is_wild for c in cards):
             raise IllegalActionError("a wild canasta must be made only of 2s/jokers")
         return Meld(
-            id=meld_id, team_id=team_id, kind=kind, rank_or_suit_anchor="", slots=list(cards)
+            id=meld_id,
+            team_id=team_id,
+            kind=kind,
+            rank_or_suit_anchor="",
+            slots=list(cards),
         )
 
     naturals, wilds = _split_wild_natural(cards)
     if not naturals:
         raise IllegalActionError(f"{kind.value} meld needs at least one natural card")
     if len(wilds) > len(naturals):
-        raise IllegalActionError("wild cards cannot outnumber natural cards in this meld")
+        raise IllegalActionError(
+            "wild cards cannot outnumber natural cards in this meld"
+        )
 
     if kind == MeldKind.SET:
         rank = naturals[0].rank
         if rank not in MELDABLE_RANKS:
             raise IllegalActionError(f"rank {rank} cannot form a set")
         if any(c.rank != rank for c in naturals):
-            raise IllegalActionError("all natural cards in a set must share the same rank")
+            raise IllegalActionError(
+                "all natural cards in a set must share the same rank"
+            )
         return Meld(
             id=meld_id,
             team_id=team_id,
@@ -93,7 +107,13 @@ def build_new_meld(meld_id: str, team_id: str, kind: MeldKind, cards: list[Card]
         suit = naturals[0].suit
         anchor_start, slots = _build_sequence_slots(cards)
         anchor = f"{suit.value}:{MELDABLE_RANKS[anchor_start].value}"
-        return Meld(id=meld_id, team_id=team_id, kind=kind, rank_or_suit_anchor=anchor, slots=slots)
+        return Meld(
+            id=meld_id,
+            team_id=team_id,
+            kind=kind,
+            rank_or_suit_anchor=anchor,
+            slots=slots,
+        )
 
     raise IllegalActionError(f"unknown meld kind {kind}")
 
@@ -135,7 +155,9 @@ def add_to_meld(meld: Meld, team_id: str, cards: list[Card]) -> Meld:
         new_slots = [*meld.slots, *cards]
         new_wild = sum(1 for c in new_slots if c.is_wild)
         if new_wild > (len(new_slots) - new_wild):
-            raise IllegalActionError("wild cards cannot outnumber natural cards in this meld")
+            raise IllegalActionError(
+                "wild cards cannot outnumber natural cards in this meld"
+            )
         return Meld(
             id=meld.id,
             team_id=meld.team_id,
@@ -153,7 +175,11 @@ def add_to_meld(meld: Meld, team_id: str, cards: list[Card]) -> Meld:
         anchor_start, slots = _build_sequence_slots(combined)
         anchor = f"{suit.value}:{MELDABLE_RANKS[anchor_start].value}"
         return Meld(
-            id=meld.id, team_id=meld.team_id, kind=meld.kind, rank_or_suit_anchor=anchor, slots=slots
+            id=meld.id,
+            team_id=meld.team_id,
+            kind=meld.kind,
+            rank_or_suit_anchor=anchor,
+            slots=slots,
         )
 
     raise IllegalActionError(f"unknown meld kind {meld.kind}")
@@ -171,7 +197,11 @@ def steal_wild(
         raise IllegalActionError("the replacement card must be a natural card")
 
     try:
-        pos = next(i for i, c in enumerate(meld.slots) if c is not None and c.id == wild_card_id)
+        pos = next(
+            i
+            for i, c in enumerate(meld.slots)
+            if c is not None and c.id == wild_card_id
+        )
     except StopIteration as exc:
         raise IllegalActionError("wild card not found in this meld") from exc
 
