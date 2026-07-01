@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+import redis
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -18,6 +19,7 @@ import app.ws.router as ws_router
 from app.db.models import Base
 from app.db.session import get_db
 from app.main import app
+from app.redis_store import RedisGameStore
 
 
 @pytest_asyncio.fixture
@@ -51,3 +53,18 @@ def client(
             yield test_client
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def redis_store(monkeypatch: pytest.MonkeyPatch) -> RedisGameStore:
+    test_client = redis.Redis(host="127.0.0.1", port=6379, db=15, decode_responses=True)
+    try:
+        test_client.ping()
+    except redis.exceptions.ConnectionError:
+        pytest.skip(
+            "Redis is not reachable at 127.0.0.1:6379 (run `docker compose up -d redis`)"
+        )
+    test_client.flushdb()
+    store = RedisGameStore(client=test_client)
+    monkeypatch.setattr(ws_router, "store", store)
+    return store
