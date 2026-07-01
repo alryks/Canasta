@@ -62,6 +62,42 @@ class DealState:
         return self.player_order[(idx + 1) % len(self.player_order)]
 
 
+@dataclass
+class PlayerInfo:
+    id: str
+    name: str
+    session_token: str
+    seat: int | None = None
+    team_id: str | None = None
+    connected: bool = True
+
+
+@dataclass
+class GameSettings:
+    target_score: int = 5000
+    discard_visibility: str = "TOP_ONLY"  # "FULL" | "TOP_ONLY"
+
+
+@dataclass
+class DealSummary:
+    deal_number: int
+    score_breakdown: dict[str, int]
+    team_scores_after: dict[str, int]
+
+
+@dataclass
+class GameState:
+    """The whole match (plan section 9). `current_deal` is the only piece
+    that changes on every action; it lives in Redis wholesale (section 10)."""
+
+    game_id: str
+    settings: GameSettings
+    players: list[PlayerInfo]
+    scores: dict[str, int]
+    current_deal: DealState | None = None
+    deal_history: list[DealSummary] = field(default_factory=list)
+
+
 def start_new_deal(
     player_order: list[str],
     player_team: dict[str, str],
