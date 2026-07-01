@@ -10,7 +10,9 @@ from sqlalchemy import select
 from app.db.models import Game, Player
 from app.db.session import async_session
 from app.engine.engine import GameSettings, GameState, PlayerInfo, start_new_deal
+from app.engine.errors import IllegalActionError
 from app.redis_store import RedisGameStore
+from app.ws.game_intents import GAME_INTENTS, apply_game_intent
 from app.ws.manager import manager
 from app.ws.serialization import build_client_game_state, build_lobby_state
 
@@ -152,6 +154,29 @@ async def _handle_start_game(session, game: Game, sender: Player) -> None:
     )
 
 
+async def _handle_game_intent(
+    session, game: Game, sender_id: str, intent: str, data: dict
+) -> None:
+    result = await apply_game_intent(store, session, game, sender_id, intent, data)
+
+    if not result.deal_completed:
+        await manager.broadcast_personalized(
+            game.id, lambda pid: build_client_game_state(result.game_state, pid)
+        )
+        return
+
+    await manager.broadcast(game.id, result.deal_result_message)
+    if result.winner_team_id is not None:
+        await manager.broadcast(
+            game.id,
+            {"type": "game_over", "data": {"winner_team": result.winner_team_id}},
+        )
+    else:
+        await manager.broadcast_personalized(
+            game.id, lambda pid: build_client_game_state(result.game_state, pid)
+        )
+
+
 async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
     intent = message.get("type")
     data = message.get("data", {})
@@ -169,9 +194,11 @@ async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
                 await _handle_set_lobby_settings(session, game, sender, data)
             elif intent == "start_game":
                 await _handle_start_game(session, game, sender)
+            elif intent in GAME_INTENTS:
+                await _handle_game_intent(session, game, sender_id, intent, data)
             else:
                 raise LobbyActionError(f"unknown intent {intent!r}")
-        except LobbyActionError as exc:
+        except (LobbyActionError, IllegalActionError) as exc:
             await manager.send_to(
                 game_id,
                 sender_id,
