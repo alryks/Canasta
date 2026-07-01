@@ -49,8 +49,10 @@ SEQUENCE_RANK_ORDER = [
     Rank.ACE,
 ]
 
-# Ranks that can form a "набор одного номинала" (set of one rank), suits any.
-SET_RANK_ORDER = SEQUENCE_RANK_ORDER + [Rank.TWO]
+# Ranks that can anchor a natural meld (SET or SEQUENCE). Threes never meld;
+# twos and jokers are always wild and can only appear as filler or as an
+# all-wild WILD_CANASTA (rules.md section 3/9).
+MELDABLE_RANKS = SEQUENCE_RANK_ORDER
 
 WILD_RANKS = frozenset({Rank.TWO, Rank.JOKER})
 
