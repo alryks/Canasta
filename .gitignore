@@ -11,7 +11,11 @@ dist/
 
 # Env
 .env
+docker-compose.override.yml
 
 # OS/editor
 .DS_Store
 *.log
+
+# Local Claude Code scratch (preview server launch config, etc.)
+.claude/

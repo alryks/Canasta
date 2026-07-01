@@ -1,9 +1,17 @@
+import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { HomePage } from './pages/HomePage'
+import { JoinPage } from './pages/JoinPage'
+import { LobbyPage } from './pages/LobbyPage'
+
 function App() {
   return (
-    <main>
-      <h1>Канаста Online</h1>
-      <p>Проект в разработке.</p>
-    </main>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/join/:gameId" element={<JoinPage />} />
+        <Route path="/games/:gameId" element={<LobbyPage />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
