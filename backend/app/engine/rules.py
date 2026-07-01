@@ -62,60 +62,72 @@ def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
     return anchor_start, [c for c in slots if c is not None]
 
 
-def build_new_meld(
-    meld_id: str, team_id: str, kind: MeldKind, cards: list[Card]
-) -> Meld:
+def build_new_meld(meld_id: str, team_id: str, cards: list[Card]) -> Meld:
+    """Infer SET vs SEQUENCE vs WILD_CANASTA from the cards themselves.
+
+    Given the wild<=natural constraint, a legal meld of size>=3 always has
+    >=2 natural cards whenever it contains a wild (1 natural would allow at
+    most 1 wild -> 2 cards, below the minimum). With >=2 naturals, "same
+    rank" (a SET) and "same suit + all distinct ranks" (a SEQUENCE) are
+    mutually exclusive, so the kind never needs to be supplied explicitly.
+    """
     if len(cards) < 3:
         raise IllegalActionError("a new meld needs at least 3 cards")
 
-    if kind == MeldKind.WILD_CANASTA:
-        if not all(c.is_wild for c in cards):
-            raise IllegalActionError("a wild canasta must be made only of 2s/jokers")
+    naturals, wilds = _split_wild_natural(cards)
+
+    if not naturals:
         return Meld(
             id=meld_id,
             team_id=team_id,
-            kind=kind,
+            kind=MeldKind.WILD_CANASTA,
             rank_or_suit_anchor="",
             slots=list(cards),
         )
 
-    naturals, wilds = _split_wild_natural(cards)
-    if not naturals:
-        raise IllegalActionError(f"{kind.value} meld needs at least one natural card")
     if len(wilds) > len(naturals):
         raise IllegalActionError(
             "wild cards cannot outnumber natural cards in this meld"
         )
 
-    if kind == MeldKind.SET:
-        rank = naturals[0].rank
-        if rank not in MELDABLE_RANKS:
-            raise IllegalActionError(f"rank {rank} cannot form a set")
-        if any(c.rank != rank for c in naturals):
-            raise IllegalActionError(
-                "all natural cards in a set must share the same rank"
-            )
+    ranks = {c.rank for c in naturals}
+    suits = {c.suit for c in naturals}
+    can_be_set = len(ranks) == 1 and next(iter(ranks)) in MELDABLE_RANKS
+    can_be_sequence = False
+    sequence_result: tuple[int, list[Card]] | None = None
+    if len(suits) == 1 and len(ranks) == len(naturals):
+        try:
+            sequence_result = _build_sequence_slots(cards)
+            can_be_sequence = True
+        except IllegalActionError:
+            can_be_sequence = False
+
+    if can_be_set:
+        rank = next(iter(ranks))
         return Meld(
             id=meld_id,
             team_id=team_id,
-            kind=kind,
+            kind=MeldKind.SET,
             rank_or_suit_anchor=rank.value,
             slots=list(cards),
         )
 
-    if kind == MeldKind.SEQUENCE:
-        suit = naturals[0].suit
-        anchor_start, slots = _build_sequence_slots(cards)
+    if can_be_sequence:
+        assert sequence_result is not None
+        anchor_start, slots = sequence_result
+        suit = next(iter(suits))
         anchor = f"{suit.value}:{MELDABLE_RANKS[anchor_start].value}"
         return Meld(
             id=meld_id,
             team_id=team_id,
-            kind=kind,
+            kind=MeldKind.SEQUENCE,
             rank_or_suit_anchor=anchor,
             slots=slots,
         )
 
-    raise IllegalActionError(f"unknown meld kind {kind}")
+    raise IllegalActionError(
+        "cards do not form a valid set (same rank) or sequence (same suit, consecutive ranks)"
+    )
 
 
 def _sequence_anchor(meld: Meld) -> tuple[Suit, int]:

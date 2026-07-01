@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.engine.models import MeldKind
-
 
 @dataclass(frozen=True)
 class DrawDeck:
@@ -19,7 +17,6 @@ class DrawDiscard:
 
 @dataclass(frozen=True)
 class CreateMeld:
-    kind: MeldKind
     card_ids: list[str]
 
 

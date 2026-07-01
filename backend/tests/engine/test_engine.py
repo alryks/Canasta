@@ -8,7 +8,7 @@ from app.engine.actions import (
 )
 from app.engine.engine import combined_team_hand, final_deal_scores, start_new_deal
 from app.engine.errors import IllegalActionError
-from app.engine.models import Card, MeldKind, Rank, Suit, TeamTable
+from app.engine.models import Card, Rank, Suit, TeamTable
 from app.engine.scoring import ExitType
 from app.engine.turn_fsm import TurnPhase
 from app.engine.engine import DealState, apply_action
@@ -101,9 +101,7 @@ def test_full_deal_from_deal_to_exit() -> None:
     apply_action(deal, "p1", DrawDeck())
     assert deal.hands["p1"][-1].id == "black3_p1"
 
-    apply_action(
-        deal, "p1", CreateMeld(kind=MeldKind.SET, card_ids=["as1", "ah1", "ac1"])
-    )
+    apply_action(deal, "p1", CreateMeld(card_ids=["as1", "ah1", "ac1"]))
     assert deal.teams["A"].is_opened is True
     assert deal.teams["A"].turn_accumulator == 30
 
@@ -179,7 +177,7 @@ def test_clean_exit_auto_triggers_when_meld_action_empties_hand() -> None:
     )
     apply_action(deal, "p1", DrawDeck())  # hand: 3 sevens + filler
     # Add all 3 sevens as a full canasta-in-progress; still holding filler card.
-    apply_action(deal, "p1", CreateMeld(kind=MeldKind.SET, card_ids=["s0", "s1", "s2"]))
+    apply_action(deal, "p1", CreateMeld(card_ids=["s0", "s1", "s2"]))
     assert not deal.deal_over
 
     # Now grow it to 7 with more identical-rank cards to close it, using steal
@@ -214,7 +212,7 @@ def test_steal_wild_via_apply_action_moves_card_between_hands() -> None:
     ]
     from app.engine.rules import build_new_meld
 
-    opponent_meld = build_new_meld("oppmeld", "B", MeldKind.SET, opponent_meld_cards)
+    opponent_meld = build_new_meld("oppmeld", "B", opponent_meld_cards)
 
     replacement = c(Rank.SEVEN, Suit.DIAMONDS, "sev_repl")
     filler = c(Rank.NINE, Suit.HEARTS, "filler")

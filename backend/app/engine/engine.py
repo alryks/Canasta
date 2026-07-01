@@ -154,14 +154,12 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
             deal.hands[player_id].extend(deal.discard_pile)
             deal.discard_pile = []
 
-        case CreateMeld(kind=kind, card_ids=card_ids):
+        case CreateMeld(card_ids=card_ids):
             hand = deal.hands[player_id]
             cards = _take_from_hand(hand, card_ids)
             team_id = deal.player_team[player_id]
             try:
-                meld = build_new_meld(
-                    f"m{next(_meld_id_counter)}", team_id, kind, cards
-                )
+                meld = build_new_meld(f"m{next(_meld_id_counter)}", team_id, cards)
             except IllegalActionError:
                 hand.extend(cards)
                 raise
