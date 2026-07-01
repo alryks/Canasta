@@ -1,7 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { GameRoute } from './pages/GameRoute'
 import { HomePage } from './pages/HomePage'
 import { JoinPage } from './pages/JoinPage'
-import { LobbyPage } from './pages/LobbyPage'
 
 function App() {
   return (
@@ -9,7 +9,7 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/join/:gameId" element={<JoinPage />} />
-        <Route path="/games/:gameId" element={<LobbyPage />} />
+        <Route path="/games/:gameId" element={<GameRoute />} />
       </Routes>
     </BrowserRouter>
   )
