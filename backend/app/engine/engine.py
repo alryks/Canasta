@@ -30,6 +30,7 @@ from app.engine.turn_fsm import (
     draw_from_deck,
     draw_from_discard,
     end_turn,
+    force_skip as fsm_force_skip,
     go_out_clean,
     record_meld_created,
     start_turn,
@@ -303,6 +304,26 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
         case _:
             raise IllegalActionError(f"unknown action {action!r}")
 
+    return deal
+
+
+def force_skip_turn(deal: DealState, target_player_id: str) -> DealState:
+    """FR-37: host's administrative "skip with penalty" after a disconnect
+    timeout. Unlike `apply_action`, the caller (host) is never the acting
+    player, so this bypasses `_require_current_player` and instead checks
+    that `target_player_id` really is the one holding up the turn. The
+    stuck player's hand is left untouched -- only the penalty and the turn
+    pointer move.
+    """
+    if deal.deal_over:
+        raise IllegalActionError("deal is already over")
+    if deal.turn_state.current_player_id != target_player_id:
+        raise IllegalActionError(f"{target_player_id} is not the current player")
+
+    team_id = deal.player_team[target_player_id]
+    deal.penalties[team_id] = deal.penalties.get(team_id, 0) - CONCEDE_PENALTY_POINTS
+    next_player = deal.next_player(target_player_id)
+    deal.turn_state = fsm_force_skip(deal.turn_state, next_player)
     return deal
 
 

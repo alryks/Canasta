@@ -10,6 +10,7 @@ from app.engine.turn_fsm import (
     draw_from_deck,
     draw_from_discard,
     end_turn,
+    force_skip,
     go_out_clean,
     record_meld_created,
     start_turn,
@@ -189,6 +190,27 @@ def test_end_turn_starts_fresh_draw_for_next_player() -> None:
     state = end_turn(state, "p2")
     assert state.current_player_id == "p2"
     assert state.phase == TurnPhase.DRAW
+
+
+@pytest.mark.parametrize("state", [start_turn("p1"), draw_from_deck(start_turn("p1"))])
+def test_force_skip_allowed_from_draw_or_act_phase(state) -> None:
+    result = force_skip(state, "p2")
+    assert result.current_player_id == "p2"
+    assert result.phase == TurnPhase.DRAW
+
+
+def test_force_skip_rejected_once_deal_already_ended() -> None:
+    state = draw_from_deck(start_turn("p1"))
+    state = discard(
+        state,
+        team_opened=True,
+        threshold_met=True,
+        hand_empty_after=True,
+        team_has_closed_canasta=True,
+    )
+    assert state.phase == TurnPhase.DEAL_END
+    with pytest.raises(IllegalActionError):
+        force_skip(state, "p2")
     assert state.must_meld_after_pickup is False
     assert state.melds_created_this_turn == 0
     assert state.pending_penalty is False

@@ -9,9 +9,16 @@ from sqlalchemy import select
 
 from app.db.models import Game, Player
 from app.db.session import async_session
-from app.engine.engine import GameSettings, GameState, PlayerInfo, start_new_deal
+from app.engine.engine import (
+    GameSettings,
+    GameState,
+    PlayerInfo,
+    force_skip_turn,
+    start_new_deal,
+)
 from app.engine.errors import IllegalActionError
 from app.redis_store import RedisGameStore
+from app.ws import turn_timer
 from app.ws.game_intents import GAME_INTENTS, apply_game_intent
 from app.ws.manager import manager
 from app.ws.serialization import build_client_game_state, build_lobby_state
@@ -161,6 +168,55 @@ async def _handle_start_game(session, game: Game, sender: Player) -> None:
     )
 
 
+def _make_on_expire(game_id: str, player_id: str):
+    async def _on_expire() -> None:
+        await manager.broadcast(
+            game_id,
+            {"type": "turn_timer_expired", "data": {"player_id": player_id}},
+        )
+
+    return _on_expire
+
+
+async def _maybe_arm_turn_timer(session, game: Game, game_state: GameState) -> None:
+    """FR-35: if whoever's turn it now is happens to be disconnected --
+    either they just dropped mid-turn, or the turn advanced to someone who
+    was already offline -- start (or keep) the grace-period timer."""
+    deal = game_state.current_deal
+    if deal is None:
+        return
+    current_player_id = deal.turn_state.current_player_id
+    player = await session.get(Player, current_player_id)
+    if player is not None and not player.connected:
+        turn_timer.arm(
+            game.id, current_player_id, _make_on_expire(game.id, current_player_id)
+        )
+
+
+async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) -> None:
+    if not sender.is_host:
+        raise LobbyActionError("only the host can skip a stuck player's turn")
+    if game.status != "IN_PROGRESS":
+        raise LobbyActionError("game is not in progress")
+
+    with store.lock(game.id):
+        game_state = store.get_state(game.id)
+        if game_state is None or game_state.current_deal is None:
+            raise LobbyActionError("no active deal")
+        current_player_id = game_state.current_deal.turn_state.current_player_id
+        if turn_timer.expired_player(game.id) != current_player_id:
+            raise LobbyActionError("turn timer has not expired for the current player")
+
+        force_skip_turn(game_state.current_deal, current_player_id)
+        store.set_state(game.id, game_state)
+
+    turn_timer.cancel_for_player(game.id, current_player_id)
+    await manager.broadcast_personalized(
+        game.id, lambda pid: build_client_game_state(game_state, pid)
+    )
+    await _maybe_arm_turn_timer(session, game, game_state)
+
+
 async def _handle_game_intent(
     session, game: Game, sender_id: str, intent: str, data: dict
 ) -> None:
@@ -170,6 +226,7 @@ async def _handle_game_intent(
         await manager.broadcast_personalized(
             game.id, lambda pid: build_client_game_state(result.game_state, pid)
         )
+        await _maybe_arm_turn_timer(session, game, result.game_state)
         return
 
     await manager.broadcast(game.id, result.deal_result_message)
@@ -178,10 +235,12 @@ async def _handle_game_intent(
             game.id,
             {"type": "game_over", "data": {"winner_team": result.winner_team_id}},
         )
+        turn_timer.cancel_game(game.id)
     else:
         await manager.broadcast_personalized(
             game.id, lambda pid: build_client_game_state(result.game_state, pid)
         )
+        await _maybe_arm_turn_timer(session, game, result.game_state)
 
 
 async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
@@ -201,6 +260,8 @@ async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
                 await _handle_set_lobby_settings(session, game, sender, data)
             elif intent == "start_game":
                 await _handle_start_game(session, game, sender)
+            elif intent == "skip_turn_with_penalty":
+                await _handle_skip_turn_with_penalty(session, game, sender)
             elif intent in GAME_INTENTS:
                 await _handle_game_intent(session, game, sender_id, intent, data)
             else:
@@ -241,7 +302,9 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
         else:
             # FR-36: reconnect snapshot is just the same full GameState the
             # Redis store already holds -- it carries turn_state.phase, so
-            # the player lands back on exactly the phase they left on.
+            # the player lands back on exactly the phase they left on. If
+            # this player's turn had timed out, they're back -- cancel it.
+            turn_timer.cancel_for_player(game_id, player.id)
             await manager.broadcast(
                 game_id, _player_connection_message(player.id, True)
             )
@@ -274,3 +337,6 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
                     await manager.broadcast(
                         game_id, _player_connection_message(player.id, False)
                     )
+                    game_state = store.get_state(game_id)
+                    if game_state is not None:
+                        await _maybe_arm_turn_timer(session, game, game_state)

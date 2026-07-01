@@ -118,3 +118,15 @@ def end_turn(turn_state: TurnState, next_player_id: str) -> TurnState:
     if turn_state.phase != TurnPhase.DISCARD:
         raise IllegalActionError(f"cannot end_turn during phase {turn_state.phase}")
     return start_turn(next_player_id)
+
+
+def force_skip(turn_state: TurnState, next_player_id: str) -> TurnState:
+    """FR-37: host's administrative skip after a disconnect timeout.
+
+    Unlike `end_turn`, this is allowed from any in-progress phase (DRAW/ACT/
+    DISCARD) since the stuck player may not have drawn or melded at all --
+    it's an out-of-band override, not a normal player action.
+    """
+    if turn_state.phase == TurnPhase.DEAL_END:
+        raise IllegalActionError("cannot skip turn: deal already over")
+    return start_turn(next_player_id)

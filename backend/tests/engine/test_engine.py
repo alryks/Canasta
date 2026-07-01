@@ -6,7 +6,12 @@ from app.engine.actions import (
     DrawDeck,
     StealWild,
 )
-from app.engine.engine import combined_team_hand, final_deal_scores, start_new_deal
+from app.engine.engine import (
+    combined_team_hand,
+    final_deal_scores,
+    force_skip_turn,
+    start_new_deal,
+)
 from app.engine.errors import IllegalActionError
 from app.engine.models import Card, Rank, Suit, TeamTable
 from app.engine.scoring import ExitType
@@ -242,3 +247,24 @@ def test_steal_wild_via_apply_action_moves_card_between_hands() -> None:
     assert wild in deal.hands["p1"]
     assert replacement not in deal.hands["p1"]
     assert replacement in deal.teams["B"].melds[0].slots
+
+
+def test_force_skip_turn_penalizes_team_and_advances_without_touching_hand() -> None:
+    deal, _ = _build_full_deal_scenario()
+    stuck_player = deal.turn_state.current_player_id
+    assert stuck_player == "p1"
+    hand_before = list(deal.hands[stuck_player])
+
+    force_skip_turn(deal, stuck_player)
+
+    assert deal.hands[stuck_player] == hand_before
+    assert deal.penalties["A"] == -1000
+    assert deal.turn_state.current_player_id == "p2"
+    assert deal.turn_state.phase == TurnPhase.DRAW
+    assert not deal.deal_over
+
+
+def test_force_skip_turn_rejects_wrong_target_player() -> None:
+    deal, _ = _build_full_deal_scenario()
+    with pytest.raises(IllegalActionError):
+        force_skip_turn(deal, "p2")
