@@ -42,6 +42,13 @@ def _player_public(player: Player) -> dict:
     }
 
 
+def _player_connection_message(player_id: str, connected: bool) -> dict:
+    return {
+        "type": "player_connection",
+        "data": {"player_id": player_id, "connected": connected},
+    }
+
+
 async def _lobby_state_message(session, game: Game) -> dict:
     players = (
         await session.scalars(select(Player).where(Player.game_id == game.id))
@@ -232,6 +239,12 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
         if game.status == "LOBBY":
             await manager.broadcast(game_id, await _lobby_state_message(session, game))
         else:
+            # FR-36: reconnect snapshot is just the same full GameState the
+            # Redis store already holds -- it carries turn_state.phase, so
+            # the player lands back on exactly the phase they left on.
+            await manager.broadcast(
+                game_id, _player_connection_message(player.id, True)
+            )
             game_state = store.get_state(game_id)
             if game_state is not None:
                 await websocket.send_json(
@@ -243,6 +256,10 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
             message = await websocket.receive_json()
             await _handle_intent(game_id, player.id, message)
     except WebSocketDisconnect:
+        # Unregister before broadcasting -- the disconnecting player's own
+        # socket is already closed at the transport level, so sending to it
+        # would raise.
+        manager.unregister(game_id, player.id)
         async with async_session() as session:
             disconnected = await session.get(Player, player.id)
             if disconnected is not None:
@@ -253,4 +270,7 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
                     await manager.broadcast(
                         game_id, await _lobby_state_message(session, game)
                     )
-        manager.unregister(game_id, player.id)
+                elif game is not None and game.status == "IN_PROGRESS":
+                    await manager.broadcast(
+                        game_id, _player_connection_message(player.id, False)
+                    )

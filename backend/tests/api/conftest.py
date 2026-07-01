@@ -81,4 +81,5 @@ def started_game(client: TestClient, redis_store: RedisGameStore) -> Iterator[di
             "tokens": tokens,
             "names": names,
             "states": states,
+            "client": client,
         }
