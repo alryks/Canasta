@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SeatList } from '../components/SeatList'
+import { LobbySettingsPanel } from '../components/LobbySettingsPanel'
+import { SeatGrid } from '../components/SeatGrid'
 import { isLobbyStateMessage } from '../lib/protocol'
 import { loadSession } from '../lib/session'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 
+const REQUIRED_SEATS = 4
+
 export function LobbyPage() {
   const { gameId = '' } = useParams()
   const navigate = useNavigate()
   const connect = useConnectionStore((s) => s.connect)
+  const send = useConnectionStore((s) => s.send)
   const disconnect = useConnectionStore((s) => s.disconnect)
   const status = useConnectionStore((s) => s.status)
+  const playerId = useConnectionStore((s) => s.playerId)
   const applyLobbyState = useLobbyStore((s) => s.applyLobbyState)
   const players = useLobbyStore((s) => s.players)
   const hostId = useLobbyStore((s) => s.hostId)
+  const settings = useLobbyStore((s) => s.settings)
   const [gameStarted, setGameStarted] = useState(false)
 
   useEffect(() => {
@@ -39,6 +45,9 @@ export function LobbyPage() {
   }, [gameId])
 
   const inviteLink = `${window.location.origin}/join/${gameId}`
+  const isHost = playerId !== null && playerId === hostId
+  const seatedCount = players.filter((p) => p.seat !== null).length
+  const canStart = isHost && seatedCount === REQUIRED_SEATS
 
   if (gameStarted) {
     return (
@@ -62,7 +71,32 @@ export function LobbyPage() {
         </button>
       </p>
       <p>Статус соединения: {status}</p>
-      <SeatList players={players} hostId={hostId} />
+
+      <SeatGrid
+        players={players}
+        hostId={hostId}
+        isHost={isHost}
+        onAssignSeat={(assignedPlayerId, seat) =>
+          send('assign_seat', { player_id: assignedPlayerId, seat })
+        }
+      />
+
+      <LobbySettingsPanel
+        targetScore={settings.targetScore}
+        discardVisibility={settings.discardVisibility}
+        isHost={isHost}
+        onChange={(change) => send('set_lobby_settings', change)}
+      />
+
+      {isHost && (
+        <button
+          type="button"
+          disabled={!canStart}
+          onClick={() => send('start_game', {})}
+        >
+          Начать игру
+        </button>
+      )}
     </main>
   )
 }
