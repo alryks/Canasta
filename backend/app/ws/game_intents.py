@@ -1,8 +1,9 @@
 """In-deal WS intents (plan section 8, phase 4): draw/meld/steal/discard.
 
 Dispatches onto the pure engine (apply_action) against the live GameState
-kept in Redis. Steal/discard intents and deal scoring land in the following
-steps -- this one wires up draw_deck/draw_discard/create_meld/add_to_meld.
+kept in Redis. Discard/concede_penalty and deal scoring land in the next
+step -- this one wires up draw_deck/draw_discard/create_meld/add_to_meld/
+steal_wild.
 """
 
 from __future__ import annotations
@@ -12,12 +13,21 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Game
-from app.engine.actions import Action, AddToMeld, CreateMeld, DrawDeck, DrawDiscard
+from app.engine.actions import (
+    Action,
+    AddToMeld,
+    CreateMeld,
+    DrawDeck,
+    DrawDiscard,
+    StealWild,
+)
 from app.engine.engine import GameState, apply_action
 from app.engine.errors import IllegalActionError
 from app.redis_store import RedisGameStore
 
-GAME_INTENTS = frozenset({"draw_deck", "draw_discard", "create_meld", "add_to_meld"})
+GAME_INTENTS = frozenset(
+    {"draw_deck", "draw_discard", "create_meld", "add_to_meld", "steal_wild"}
+)
 
 
 @dataclass
@@ -38,6 +48,12 @@ def _build_action(intent: str, data: dict) -> Action:
     if intent == "add_to_meld":
         return AddToMeld(
             meld_id=data.get("meld_id", ""), card_ids=list(data.get("card_ids", []))
+        )
+    if intent == "steal_wild":
+        return StealWild(
+            meld_id=data.get("meld_id", ""),
+            wild_card_id=data.get("wild_card_id", ""),
+            replacement_card_id=data.get("replacement_card_id", ""),
         )
     raise IllegalActionError(f"unknown intent {intent!r}")
 
