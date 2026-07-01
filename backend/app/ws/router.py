@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from app.db.models import Game, Player
+from app.db.models import ChatMessage, Game, Player
 from app.db.session import async_session
 from app.engine.engine import (
     GameSettings,
@@ -143,6 +143,30 @@ async def _handle_set_lobby_settings(
     await manager.broadcast(game.id, await _lobby_state_message(session, game))
 
 
+async def _handle_send_chat(session, game: Game, sender: Player, data: dict) -> None:
+    text = str(data.get("text", "")).strip()
+    if not text:
+        raise LobbyActionError("chat message must not be empty")
+    if len(text) > 2000:
+        raise LobbyActionError("chat message is too long")
+
+    message = ChatMessage(game_id=game.id, player_id=sender.id, text=text)
+    session.add(message)
+    await session.commit()
+
+    await manager.broadcast(
+        game.id,
+        {
+            "type": "chat_message",
+            "data": {
+                "from": sender.id,
+                "text": text,
+                "ts": message.created_at.isoformat(),
+            },
+        },
+    )
+
+
 async def _handle_start_game(session, game: Game, sender: Player) -> None:
     if not sender.is_host:
         raise LobbyActionError("only the host can start the game")
@@ -262,6 +286,8 @@ async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
                 await _handle_start_game(session, game, sender)
             elif intent == "skip_turn_with_penalty":
                 await _handle_skip_turn_with_penalty(session, game, sender)
+            elif intent == "send_chat":
+                await _handle_send_chat(session, game, sender, data)
             elif intent in GAME_INTENTS:
                 await _handle_game_intent(session, game, sender_id, intent, data)
             else:
