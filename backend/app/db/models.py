@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, JSON, String
+from sqlalchemy import DateTime, ForeignKey, JSON, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -23,7 +23,10 @@ def _utcnow() -> datetime:
 
 
 class Base(DeclarativeBase):
-    pass
+    # every Mapped[datetime] column stores an aware UTC value (_utcnow) --
+    # without this, SQLAlchemy defaults to TIMESTAMP WITHOUT TIME ZONE and
+    # asyncpg rejects the aware datetime outright.
+    type_annotation_map = {datetime: DateTime(timezone=True)}
 
 
 class Game(Base):
