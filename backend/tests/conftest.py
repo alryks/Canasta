@@ -14,6 +14,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.ws.router as ws_router
 from app.db.models import Base
 from app.db.session import get_db
 from app.main import app
@@ -35,12 +36,16 @@ async def db_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]
 @pytest.fixture
 def client(
     db_session_factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> AsyncIterator[TestClient]:
     async def _get_db_override() -> AsyncIterator[AsyncSession]:
         async with db_session_factory() as session:
             yield session
 
     app.dependency_overrides[get_db] = _get_db_override
+    # The WS router talks to the DB directly (no FastAPI Depends plumbing for
+    # websockets), so it needs its own session factory swapped in for tests.
+    monkeypatch.setattr(ws_router, "async_session", db_session_factory)
     try:
         with TestClient(app) as test_client:
             yield test_client

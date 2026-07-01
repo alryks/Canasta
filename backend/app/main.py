@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.games import router as games_router
 from app.config import settings
+from app.ws.router import router as ws_router
 
 app = FastAPI(title="Canasta Online")
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(games_router)
+app.include_router(ws_router)
 
 
 @app.get("/health")
