@@ -1,9 +1,9 @@
 import { create } from 'zustand'
-import type { DealResultMessage, GameStateData } from '../lib/protocol'
+import type { DealResultMessage, DealScoreBreakdown, GameStateData } from '../lib/protocol'
 
 interface DealResult {
   dealNumber: number
-  scoresBreakdown: Record<string, unknown>
+  scoresBreakdown: Record<string, DealScoreBreakdown>
   teamScoresAfter: Record<string, number>
   nextDeal: boolean
 }
@@ -18,6 +18,7 @@ interface GameStore {
   applyGameOver: (winnerTeamId: string) => void
   applyActionError: (reason: string) => void
   dismissActionError: () => void
+  dismissDealResult: () => void
   reset: () => void
 }
 
@@ -45,6 +46,7 @@ export const useGameStore = create<GameStore>((set) => ({
 
   applyActionError: (reason) => set({ lastActionError: reason }),
   dismissActionError: () => set({ lastActionError: null }),
+  dismissDealResult: () => set({ lastDealResult: null }),
 
   reset: () =>
     set({

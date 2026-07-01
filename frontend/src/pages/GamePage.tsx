@@ -1,15 +1,21 @@
 import { useState } from 'react'
+import { ChatPanel } from '../components/ChatPanel'
+import { ConcedeButton } from '../components/ConcedeButton'
+import { DealResultModal } from '../components/DealResultModal'
+import { EventLog } from '../components/EventLog'
 import { GameHeader } from '../components/GameHeader'
+import { GameOverModal } from '../components/GameOverModal'
 import { Hand } from '../components/Hand'
+import { TeamZone } from '../components/TeamZone'
+import { ThresholdIndicator } from '../components/ThresholdIndicator'
+import { TurnBanner } from '../components/TurnBanner'
 import { cardLabel } from '../lib/cards'
 import type { Card } from '../lib/protocol'
+import { useChatStore } from '../stores/chatStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameStore } from '../stores/gameStore'
 import { useLobbyStore } from '../stores/lobbyStore'
-
-function isWildRank(rank: string): boolean {
-  return rank === 'JOKER' || rank === '2'
-}
 
 interface StealTarget {
   meldId: string
@@ -19,8 +25,7 @@ interface StealTarget {
 // Click-based stand-in for the eventual drag & drop board (plan phase 9):
 // every game action is a button click driven by a hand-card selection,
 // wired straight to the WS intents the backend already implements in full
-// (phase 4). Visual polish (MeldStack, TeamZone, casino styling) lands in
-// steps 24+ -- this step only has to prove a full deal is playable.
+// (phase 4). Casino styling (design tokens, card faces) lands in phase 8.
 export function GamePage() {
   const send = useConnectionStore((s) => s.send)
   const playerId = useConnectionStore((s) => s.playerId)
@@ -29,8 +34,13 @@ export function GamePage() {
   const winnerTeamId = useGameStore((s) => s.winnerTeamId)
   const lastActionError = useGameStore((s) => s.lastActionError)
   const dismissActionError = useGameStore((s) => s.dismissActionError)
+  const dismissDealResult = useGameStore((s) => s.dismissDealResult)
   const players = useLobbyStore((s) => s.players)
   const targetScore = useLobbyStore((s) => s.settings.targetScore)
+  const chatMessages = useChatStore((s) => s.messages)
+  const chatUnread = useChatStore((s) => s.unread)
+  const markChatRead = useChatStore((s) => s.markRead)
+  const logEntries = useEventLogStore((s) => s.entries)
 
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
   const [stealTarget, setStealTarget] = useState<StealTarget | null>(null)
@@ -52,8 +62,13 @@ export function GamePage() {
     ([pid, hand]) => pid !== playerId && !Array.isArray(hand),
   ) as [string, number][]
 
-  const isMyTurn = playerId !== null && playerId === gameState.turn_player_id
+  const gameOver = winnerTeamId !== null
+  const isMyTurn =
+    !gameOver && playerId !== null && playerId === gameState.turn_player_id
   const phase = gameState.turn_phase
+  const viewerTeamOpened =
+    viewerTeamId !== null &&
+    gameState.turn_accumulator[viewerTeamId] >= gameState.thresholds[viewerTeamId]
 
   function toggleCard(cardId: string) {
     setSelectedCardIds((ids) =>
@@ -95,32 +110,29 @@ export function GamePage() {
     setStealTarget(null)
   }
 
-  if (winnerTeamId !== null) {
-    return (
-      <main>
-        <h1>Игра окончена</h1>
-        <p>Победила команда {winnerTeamId}</p>
-        <ul aria-label="scores">
-          {Object.entries(gameState.scores).map(([teamId, score]) => (
-            <li key={teamId}>
-              Команда {teamId}: {score}
-            </li>
-          ))}
-        </ul>
-      </main>
-    )
-  }
-
   return (
     <main>
-      <GameHeader
-        scores={gameState.scores}
-        targetScore={targetScore}
+      {gameOver && winnerTeamId !== null && (
+        <GameOverModal
+          winnerTeamId={winnerTeamId}
+          finalScores={lastDealResult?.teamScoresAfter ?? gameState.scores}
+        />
+      )}
+
+      <GameHeader scores={gameState.scores} targetScore={targetScore} />
+      <TurnBanner
         turnPlayerId={gameState.turn_player_id}
-        turnPhase={phase}
         viewerId={playerId}
+        turnPhase={phase}
         playerNames={playerNames}
       />
+      {viewerTeamId !== null && (
+        <ThresholdIndicator
+          teamId={viewerTeamId}
+          accumulated={gameState.turn_accumulator[viewerTeamId]}
+          threshold={gameState.thresholds[viewerTeamId]}
+        />
+      )}
 
       {lastActionError && (
         <p role="alert">
@@ -132,18 +144,13 @@ export function GamePage() {
       )}
 
       {lastDealResult && (
-        <section aria-label="deal-result">
-          <p>Сдача №{lastDealResult.dealNumber} завершена.</p>
-          <ul>
-            {Object.entries(lastDealResult.teamScoresAfter).map(
-              ([teamId, score]) => (
-                <li key={teamId}>
-                  Команда {teamId}: {score}
-                </li>
-              ),
-            )}
-          </ul>
-        </section>
+        <DealResultModal
+          dealNumber={lastDealResult.dealNumber}
+          scoresBreakdown={lastDealResult.scoresBreakdown}
+          teamScoresAfter={lastDealResult.teamScoresAfter}
+          nextDeal={lastDealResult.nextDeal}
+          onDismiss={dismissDealResult}
+        />
       )}
 
       <section aria-label="table">
@@ -171,47 +178,22 @@ export function GamePage() {
         )}
 
         {Object.entries(gameState.melds).map(([teamId, melds]) => (
-          <div key={teamId} aria-label={`melds-${teamId}`}>
-            <h3>
-              Команда {teamId} — накоплено {gameState.turn_accumulator[teamId]}/
-              {gameState.thresholds[teamId]}
-            </h3>
-            <ul>
-              {melds.map((meld) => (
-                <li key={meld.id}>
-                  {meld.kind} {meld.rank_or_suit_anchor}:{' '}
-                  {meld.slots.map((card, i) =>
-                    card === null ? (
-                      <span key={i}> _ </span>
-                    ) : teamId !== viewerTeamId &&
-                      isWildRank(card.rank) &&
-                      isMyTurn &&
-                      phase === 'ACT' ? (
-                      <button
-                        key={card.id}
-                        type="button"
-                        aria-pressed={stealTarget?.wildCardId === card.id}
-                        onClick={() => selectStealTarget(meld.id, card.id)}
-                      >
-                        {cardLabel(card)}
-                      </button>
-                    ) : (
-                      <span key={card.id}> {cardLabel(card)} </span>
-                    ),
-                  )}
-                  {teamId === viewerTeamId && isMyTurn && phase === 'ACT' && (
-                    <button
-                      type="button"
-                      disabled={selectedCardIds.length === 0}
-                      onClick={() => handleAddToMeld(meld.id)}
-                    >
-                      Добавить сюда
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <TeamZone
+            key={teamId}
+            teamId={teamId}
+            melds={melds}
+            isOwnTeam={teamId === viewerTeamId}
+            canAddCards={
+              teamId === viewerTeamId &&
+              isMyTurn &&
+              phase === 'ACT' &&
+              selectedCardIds.length > 0
+            }
+            onAddToMeld={handleAddToMeld}
+            canStealFrom={teamId !== viewerTeamId && isMyTurn && phase === 'ACT'}
+            stealTarget={stealTarget}
+            onSelectStealTarget={selectStealTarget}
+          />
         ))}
       </section>
 
@@ -241,9 +223,10 @@ export function GamePage() {
           >
             Сбросить
           </button>
-          <button type="button" onClick={() => send('concede_penalty', {})}>
-            Не могу выложить
-          </button>
+          <ConcedeButton
+            visible={!viewerTeamOpened}
+            onConcede={() => send('concede_penalty', {})}
+          />
           {stealTarget && (
             <button
               type="button"
@@ -255,6 +238,15 @@ export function GamePage() {
           )}
         </div>
       )}
+
+      <EventLog entries={logEntries} />
+      <ChatPanel
+        messages={chatMessages}
+        unreadCount={chatUnread}
+        playerNames={playerNames}
+        onSend={(text) => send('send_chat', { text })}
+        onOpen={markChatRead}
+      />
     </main>
   )
 }

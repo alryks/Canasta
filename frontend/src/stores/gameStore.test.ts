@@ -27,18 +27,40 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().state?.turn_player_id).toBe('p1')
   })
 
+  const breakdown = {
+    table_points: 220,
+    canasta_bonus: 500,
+    hand_penalty: -25,
+    three_bonus: 100,
+    exit_bonus: 200,
+    total: 995,
+  }
+
   it('records a deal result', () => {
     useGameStore.getState().applyDealResult({
       deal_number: 1,
-      scores_breakdown: { A: { total: 520 } },
+      scores_breakdown: { A: breakdown },
       team_scores_after: { A: 520, B: 0 },
       next_deal: true,
     })
 
     const result = useGameStore.getState().lastDealResult
     expect(result?.dealNumber).toBe(1)
+    expect(result?.scoresBreakdown.A).toEqual(breakdown)
     expect(result?.teamScoresAfter).toEqual({ A: 520, B: 0 })
     expect(result?.nextDeal).toBe(true)
+  })
+
+  it('dismisses a deal result', () => {
+    useGameStore.getState().applyDealResult({
+      deal_number: 1,
+      scores_breakdown: { A: breakdown },
+      team_scores_after: { A: 520, B: 0 },
+      next_deal: true,
+    })
+    useGameStore.getState().dismissDealResult()
+
+    expect(useGameStore.getState().lastDealResult).toBeNull()
   })
 
   it('records the winning team on game over', () => {

@@ -2,7 +2,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameStateData } from '../lib/protocol'
+import { useChatStore } from '../stores/chatStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameStore } from '../stores/gameStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 import { GamePage } from './GamePage'
@@ -65,6 +67,8 @@ describe('GamePage', () => {
 
   beforeEach(() => {
     useGameStore.getState().reset()
+    useChatStore.getState().reset()
+    useEventLogStore.getState().reset()
     setupPlayers()
     send = vi.fn()
     useConnectionStore.setState({
@@ -128,6 +132,7 @@ describe('GamePage', () => {
     useGameStore.getState().applyGameState(baseGameState())
     render(<GamePage />)
 
+    await userEvent.click(screen.getByText(/SET 8/))
     await userEvent.click(screen.getByText('JOKER'))
     await userEvent.click(screen.getByText('7♥'))
     await userEvent.click(screen.getByText('Украсть козырь'))
@@ -139,12 +144,96 @@ describe('GamePage', () => {
     })
   })
 
-  it('shows the winner once the game is over', () => {
+  it("shows the threshold indicator and concede button while the viewer's team is not opened", () => {
+    useGameStore
+      .getState()
+      .applyGameState(baseGameState({ turn_accumulator: { A: 15, B: 0 } }))
+    render(<GamePage />)
+
+    expect(screen.getByLabelText('threshold-A')).toHaveTextContent('15/50')
+    expect(screen.getByText('Не могу выложить')).toBeInTheDocument()
+  })
+
+  it("hides the threshold indicator and concede button once the viewer's team is opened", () => {
+    useGameStore
+      .getState()
+      .applyGameState(baseGameState({ turn_accumulator: { A: 50, B: 0 } }))
+    render(<GamePage />)
+
+    expect(screen.queryByLabelText('threshold-A')).not.toBeInTheDocument()
+    expect(screen.queryByText('Не могу выложить')).not.toBeInTheDocument()
+  })
+
+  it('shows the winner once the game is over and hides interactive controls', () => {
     useGameStore.getState().applyGameState(baseGameState({ scores: { A: 5200, B: 1100 } }))
     useGameStore.getState().applyGameOver('A')
     render(<GamePage />)
 
     expect(screen.getByText(/Игра окончена/)).toBeInTheDocument()
     expect(screen.getByText(/Победила команда A/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('actions')).not.toBeInTheDocument()
+  })
+
+  it('prefers the final deal result scores over the possibly stale game_state scores', () => {
+    useGameStore.getState().applyGameState(baseGameState({ scores: { A: 4200, B: 1100 } }))
+    useGameStore.getState().applyDealResult({
+      deal_number: 5,
+      scores_breakdown: {
+        A: {
+          table_points: 200,
+          canasta_bonus: 500,
+          hand_penalty: 0,
+          three_bonus: 100,
+          exit_bonus: 200,
+          total: 1000,
+        },
+      },
+      team_scores_after: { A: 5200, B: 1100 },
+      next_deal: false,
+    })
+    useGameStore.getState().applyGameOver('A')
+    render(<GamePage />)
+
+    const finalScores = screen.getByLabelText('final-scores')
+    expect(finalScores).toHaveTextContent('Команда A: 5200')
+  })
+
+  it('shows the deal result modal and dismisses it on click', async () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    useGameStore.getState().applyDealResult({
+      deal_number: 1,
+      scores_breakdown: {
+        A: {
+          table_points: 200,
+          canasta_bonus: 500,
+          hand_penalty: 0,
+          three_bonus: 100,
+          exit_bonus: 200,
+          total: 1000,
+        },
+      },
+      team_scores_after: { A: 1000, B: 0 },
+      next_deal: true,
+    })
+    render(<GamePage />)
+
+    expect(screen.getByText('Сдача №1 завершена')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Продолжить'))
+    expect(screen.queryByText('Сдача №1 завершена')).not.toBeInTheDocument()
+  })
+
+  it('logs notable events and sends chat messages', async () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    useEventLogStore.getState().addEntry('Bob подключился')
+    render(<GamePage />)
+
+    await userEvent.click(screen.getByText('Лента событий (1)'))
+    expect(screen.getByText('Bob подключился')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Чат'))
+    await userEvent.type(screen.getByLabelText('Сообщение'), 'привет')
+    await userEvent.click(screen.getByText('Отправить'))
+
+    expect(send).toHaveBeenCalledWith('send_chat', { text: 'привет' })
   })
 })

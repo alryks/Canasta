@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   isActionErrorMessage,
+  isChatMessageMessage,
   isDealResultMessage,
   isGameOverMessage,
   isGameStateMessage,
   isLobbyStateMessage,
+  isPlayerConnectionMessage,
 } from '../lib/protocol'
 import { loadSession } from '../lib/session'
+import { useChatStore } from '../stores/chatStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameStore } from '../stores/gameStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 import { GamePage } from './GamePage'
@@ -28,6 +32,8 @@ export function GameRoute() {
   const applyDealResult = useGameStore((s) => s.applyDealResult)
   const applyGameOver = useGameStore((s) => s.applyGameOver)
   const applyActionError = useGameStore((s) => s.applyActionError)
+  const addChatMessage = useChatStore((s) => s.addMessage)
+  const addLogEntry = useEventLogStore((s) => s.addEntry)
   const [started, setStarted] = useState(false)
 
   useEffect(() => {
@@ -45,10 +51,21 @@ export function GameRoute() {
         applyGameState(message.data)
       } else if (isDealResultMessage(message)) {
         applyDealResult(message.data)
+        addLogEntry(`Сдача №${message.data.deal_number} завершена`)
       } else if (isGameOverMessage(message)) {
         applyGameOver(message.data.winner_team)
+        addLogEntry(`Игра окончена — победила команда ${message.data.winner_team}`)
       } else if (isActionErrorMessage(message)) {
         applyActionError(message.data.reason)
+        addLogEntry(`Ошибка: ${message.data.reason}`)
+      } else if (isChatMessageMessage(message)) {
+        addChatMessage(message.data)
+      } else if (isPlayerConnectionMessage(message)) {
+        const player = useLobbyStore
+          .getState()
+          .players.find((p) => p.id === message.data.player_id)
+        const name = player?.name ?? message.data.player_id
+        addLogEntry(`${name} ${message.data.connected ? 'подключился' : 'отключился'}`)
       }
     })
 

@@ -62,11 +62,21 @@ export interface GameStateMessage {
   data: GameStateData
 }
 
+// mirrors DealScoreBreakdown (backend/app/engine/scoring.py)
+export interface DealScoreBreakdown {
+  table_points: number
+  canasta_bonus: number
+  hand_penalty: number
+  three_bonus: number
+  exit_bonus: number
+  total: number
+}
+
 export interface DealResultMessage {
   type: 'deal_result'
   data: {
     deal_number: number
-    scores_breakdown: Record<string, unknown>
+    scores_breakdown: Record<string, DealScoreBreakdown>
     team_scores_after: Record<string, number>
     next_deal: boolean
   }
@@ -82,8 +92,14 @@ export interface TurnTimerExpiredMessage {
   data: { player_id: string }
 }
 
-// player_connection and turn_timer_expired stay covered by OtherMessage for
-// now -- nothing in phase 7 needs to branch on them yet.
+export interface ChatMessageMessage {
+  type: 'chat_message'
+  data: { from: string; text: string; ts: string }
+}
+
+// turn_timer_expired stays covered by OtherMessage for now -- nothing in
+// phase 7 needs to branch on it yet (it lands with the reconnect UX polish
+// in phase 10).
 export interface OtherMessage {
   type: string
   data: unknown
@@ -97,6 +113,7 @@ export type ServerMessage =
   | DealResultMessage
   | GameOverMessage
   | TurnTimerExpiredMessage
+  | ChatMessageMessage
   | OtherMessage
 
 export function isLobbyStateMessage(
@@ -127,4 +144,16 @@ export function isActionErrorMessage(
   message: ServerMessage,
 ): message is ActionErrorMessage {
   return message.type === 'action_error'
+}
+
+export function isPlayerConnectionMessage(
+  message: ServerMessage,
+): message is PlayerConnectionMessage {
+  return message.type === 'player_connection'
+}
+
+export function isChatMessageMessage(
+  message: ServerMessage,
+): message is ChatMessageMessage {
+  return message.type === 'chat_message'
 }
