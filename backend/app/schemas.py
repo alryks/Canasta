@@ -39,6 +39,7 @@ class PlayerPublic(BaseModel):
     team_id: str | None
     connected: bool
     is_host: bool
+    is_bot: bool
 
 
 class LobbyStateResponse(BaseModel):

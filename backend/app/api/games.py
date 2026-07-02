@@ -110,6 +110,7 @@ async def get_lobby(
                 team_id=p.team_id,
                 connected=p.connected,
                 is_host=p.is_host,
+                is_bot=p.is_bot,
             )
             for p in players
         ],

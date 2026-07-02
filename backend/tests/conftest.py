@@ -15,6 +15,7 @@ import redis
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import app.ws.bot_runner as bot_runner
 import app.ws.router as ws_router
 from app.db.models import Base
 from app.db.session import get_db
@@ -67,4 +68,5 @@ def redis_store(monkeypatch: pytest.MonkeyPatch) -> RedisGameStore:
     test_client.flushdb()
     store = RedisGameStore(client=test_client)
     monkeypatch.setattr(ws_router, "store", store)
+    monkeypatch.setattr(bot_runner, "store", store)
     return store

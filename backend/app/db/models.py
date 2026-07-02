@@ -65,6 +65,7 @@ class Player(Base):
     team_id: Mapped[str | None] = mapped_column(String(8), default=None)
     session_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     is_host: Mapped[bool] = mapped_column(default=False)
+    is_bot: Mapped[bool] = mapped_column(default=False)
     connected: Mapped[bool] = mapped_column(default=True)
 
     game: Mapped[Game] = relationship(back_populates="players")

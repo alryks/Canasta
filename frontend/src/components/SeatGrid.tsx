@@ -7,49 +7,78 @@ interface SeatGridProps {
   hostId: string | null
   isHost: boolean
   onAssignSeat: (playerId: string, seat: number) => void
+  onAddBot: (seat: number) => void
 }
 
 function playerLabel(player: LobbyPlayer, hostId: string | null): string {
   const host = player.id === hostId ? ' (хост)' : ''
-  const status = player.connected ? 'в сети' : 'офлайн'
+  const status = player.is_bot ? 'бот' : player.connected ? 'в сети' : 'офлайн'
   return `${player.name}${host} — ${status}`
 }
 
-export function SeatGrid({ players, hostId, isHost, onAssignSeat }: SeatGridProps) {
+export function SeatGrid({ players, hostId, isHost, onAssignSeat, onAddBot }: SeatGridProps) {
   const bySeat = new Map(players.filter((p) => p.seat !== null).map((p) => [p.seat, p]))
   const unseated = players.filter((p) => p.seat === null)
 
   return (
     <div>
-      <ul aria-label="seats">
+      <ul aria-label="seats" className="seat-grid">
         {SEATS.map((seat) => {
           const player = bySeat.get(seat)
           return (
-            <li key={seat} data-seat={seat}>
+            <li key={seat} data-seat={seat} className={`seat-card${player ? ' is-filled' : ''}`}>
               {player ? (
-                <span>{playerLabel(player, hostId)}</span>
+                <>
+                  <span className="seat-player-name">{player.name}</span>
+                  <span>
+                    {player.id === hostId && <span className="host-tag">хост</span>}{' '}
+                    {player.is_bot ? (
+                      <span className="online-tag is-bot">🤖 бот</span>
+                    ) : (
+                      <span
+                        className={`online-tag ${player.connected ? 'is-online' : 'is-offline'}`}
+                      >
+                        {player.connected ? 'в сети' : 'офлайн'}
+                      </span>
+                    )}
+                  </span>
+                  <span className="visually-hidden">{playerLabel(player, hostId)}</span>
+                </>
               ) : isHost ? (
-                <label>
-                  Место {seat + 1}:{' '}
-                  <select
-                    value=""
-                    aria-label={`Посадить на место ${seat + 1}`}
-                    onChange={(event) => {
-                      if (event.target.value) {
-                        onAssignSeat(event.target.value, seat)
-                      }
-                    }}
+                <>
+                  <label>
+                    <span className="seat-label">Место {seat + 1}</span>
+                    <select
+                      className="input"
+                      value=""
+                      aria-label={`Посадить на место ${seat + 1}`}
+                      onChange={(event) => {
+                        if (event.target.value) {
+                          onAssignSeat(event.target.value, seat)
+                        }
+                      }}
+                    >
+                      <option value="">свободно</option>
+                      {players.map((candidate) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          {candidate.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-add-bot"
+                    onClick={() => onAddBot(seat)}
                   >
-                    <option value="">свободно</option>
-                    {players.map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {candidate.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    🤖 Добавить бота
+                  </button>
+                </>
               ) : (
-                <span>Место {seat + 1}: свободно</span>
+                <>
+                  <span className="seat-label">Место {seat + 1}</span>
+                  <span>свободно</span>
+                </>
               )}
             </li>
           )
@@ -59,9 +88,11 @@ export function SeatGrid({ players, hostId, isHost, onAssignSeat }: SeatGridProp
       {unseated.length > 0 && (
         <div>
           <p>Ожидают места:</p>
-          <ul aria-label="unseated">
+          <ul aria-label="unseated" className="unseated-list">
             {unseated.map((player) => (
-              <li key={player.id}>{playerLabel(player, hostId)}</li>
+              <li key={player.id} className="unseated-chip">
+                {playerLabel(player, hostId)}
+              </li>
             ))}
           </ul>
         </div>

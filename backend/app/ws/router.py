@@ -4,6 +4,8 @@ phase 3 scope only -- draw/meld/discard intents land in phase 4).
 
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
@@ -18,7 +20,7 @@ from app.engine.engine import (
 )
 from app.engine.errors import IllegalActionError
 from app.redis_store import RedisGameStore
-from app.ws import turn_timer
+from app.ws import bot_runner, turn_timer
 from app.ws.game_intents import GAME_INTENTS, apply_game_intent
 from app.ws.manager import manager
 from app.ws.serialization import build_client_game_state, build_lobby_state
@@ -46,6 +48,7 @@ def _player_public(player: Player) -> dict:
         "team_id": player.team_id,
         "connected": player.connected,
         "is_host": player.is_host,
+        "is_bot": player.is_bot,
     }
 
 
@@ -127,6 +130,44 @@ async def _handle_assign_seat(session, game: Game, sender: Player, data: dict) -
     await manager.broadcast(game.id, await _lobby_state_message(session, game))
 
 
+BOT_NAME_TEMPLATE = "Бот {seat}"
+
+
+async def _handle_add_bot(session, game: Game, sender: Player, data: dict) -> None:
+    """Host fills an empty seat with a simple bot (see app/bots/strategy.py)
+    instead of waiting for a real player to join -- same one-step seating as
+    the initial deal, no separate 'join' step since nothing is joining."""
+    if not sender.is_host:
+        raise LobbyActionError("only the host can add a bot")
+    if game.status != "LOBBY":
+        raise LobbyActionError("game already started")
+
+    seat = data.get("seat")
+    if seat not in SEATS:
+        raise LobbyActionError(f"invalid seat {seat!r}")
+
+    others = (
+        await session.scalars(
+            select(Player).where(Player.game_id == game.id, Player.seat == seat)
+        )
+    ).all()
+    if others:
+        raise LobbyActionError(f"seat {seat} is already taken")
+
+    bot = Player(
+        game_id=game.id,
+        name=BOT_NAME_TEMPLATE.format(seat=seat + 1),
+        # never used to open a socket, but the column is unique + non-null
+        session_token=secrets.token_urlsafe(24),
+        seat=seat,
+        team_id=_team_for_seat(seat),
+        is_bot=True,
+    )
+    session.add(bot)
+    await session.commit()
+    await manager.broadcast(game.id, await _lobby_state_message(session, game))
+
+
 async def _handle_set_lobby_settings(
     session, game: Game, sender: Player, data: dict
 ) -> None:
@@ -190,6 +231,7 @@ async def _handle_start_game(session, game: Game, sender: Player) -> None:
     await manager.broadcast_personalized(
         game.id, lambda pid: build_client_game_state(game_state, pid)
     )
+    await bot_runner.maybe_schedule_bot_turn(session, game, game_state)
 
 
 def _make_on_expire(game_id: str, player_id: str):
@@ -228,7 +270,13 @@ async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) ->
         if game_state is None or game_state.current_deal is None:
             raise LobbyActionError("no active deal")
         current_player_id = game_state.current_deal.turn_state.current_player_id
-        if turn_timer.expired_player(game.id) != current_player_id:
+        current_player = await session.get(Player, current_player_id)
+        # A bot never disconnects, so its turn timer never arms -- if a bot
+        # ever gets stuck (a strategy bug), the host still needs a way to
+        # force the game forward without waiting for a timeout that will
+        # never come.
+        is_stuck_bot = current_player is not None and current_player.is_bot
+        if not is_stuck_bot and turn_timer.expired_player(game.id) != current_player_id:
             raise LobbyActionError("turn timer has not expired for the current player")
 
         force_skip_turn(game_state.current_deal, current_player_id)
@@ -239,6 +287,7 @@ async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) ->
         game.id, lambda pid: build_client_game_state(game_state, pid)
     )
     await _maybe_arm_turn_timer(session, game, game_state)
+    await bot_runner.maybe_schedule_bot_turn(session, game, game_state)
 
 
 async def _handle_game_intent(
@@ -251,6 +300,7 @@ async def _handle_game_intent(
             game.id, lambda pid: build_client_game_state(result.game_state, pid)
         )
         await _maybe_arm_turn_timer(session, game, result.game_state)
+        await bot_runner.maybe_schedule_bot_turn(session, game, result.game_state)
         return
 
     await manager.broadcast(game.id, result.deal_result_message)
@@ -265,6 +315,7 @@ async def _handle_game_intent(
             game.id, lambda pid: build_client_game_state(result.game_state, pid)
         )
         await _maybe_arm_turn_timer(session, game, result.game_state)
+        await bot_runner.maybe_schedule_bot_turn(session, game, result.game_state)
 
 
 async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
@@ -280,6 +331,8 @@ async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
         try:
             if intent == "assign_seat":
                 await _handle_assign_seat(session, game, sender, data)
+            elif intent == "add_bot":
+                await _handle_add_bot(session, game, sender, data)
             elif intent == "set_lobby_settings":
                 await _handle_set_lobby_settings(session, game, sender, data)
             elif intent == "start_game":

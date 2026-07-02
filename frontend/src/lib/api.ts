@@ -22,6 +22,7 @@ export interface PlayerPublic {
   team_id: string | null
   connected: boolean
   is_host: boolean
+  is_bot: boolean
 }
 
 export interface LobbyStateResponse {
