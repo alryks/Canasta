@@ -20,8 +20,11 @@ describe('Hand', () => {
   it('marks selected cards as pressed', () => {
     render(<Hand cards={cards} selectedIds={['c1']} onToggleCard={vi.fn()} />)
 
-    expect(screen.getByText('7♥')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('JOKER')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '7♥' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'JOKER' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
   })
 
   it('toggles a card on click', async () => {

@@ -12,6 +12,7 @@ interface TeamZoneProps {
   isOwnTeam: boolean
   canAddCards: boolean
   onAddToMeld: (meldId: string) => void
+  canDragAdd?: boolean
   canStealFrom: boolean
   stealTarget: StealTarget | null
   onSelectStealTarget: (meldId: string, cardId: string) => void
@@ -23,14 +24,18 @@ export function TeamZone({
   isOwnTeam,
   canAddCards,
   onAddToMeld,
+  canDragAdd,
   canStealFrom,
   stealTarget,
   onSelectStealTarget,
 }: TeamZoneProps) {
   return (
-    <div aria-label={`melds-${teamId}`}>
-      <h3>Команда {teamId}</h3>
-      <ul>
+    <div
+      aria-label={`melds-${teamId}`}
+      className={`team-zone ${isOwnTeam ? 'team-zone-bottom' : 'team-zone-top'}`}
+    >
+      <h3 className="team-zone-title">Команда {teamId}</h3>
+      <ul className="meld-row">
         {melds.map((meld) => (
           <li key={meld.id}>
             <MeldStack
@@ -38,6 +43,7 @@ export function TeamZone({
               isOwnTeam={isOwnTeam}
               canAddCards={canAddCards}
               onAddToMeld={() => onAddToMeld(meld.id)}
+              canDragAdd={canDragAdd}
               canStealFrom={canStealFrom}
               isStealTarget={(cardId) =>
                 stealTarget?.meldId === meld.id && stealTarget.wildCardId === cardId
