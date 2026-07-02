@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { getLobby } from '../lib/api'
 import {
   isActionErrorMessage,
   isChatMessageMessage,
@@ -8,6 +9,7 @@ import {
   isGameStateMessage,
   isLobbyStateMessage,
   isPlayerConnectionMessage,
+  isTurnTimerExpiredMessage,
 } from '../lib/protocol'
 import { loadSession } from '../lib/session'
 import { useChatStore } from '../stores/chatStore'
@@ -32,6 +34,9 @@ export function GameRoute() {
   const applyDealResult = useGameStore((s) => s.applyDealResult)
   const applyGameOver = useGameStore((s) => s.applyGameOver)
   const applyActionError = useGameStore((s) => s.applyActionError)
+  const applyTurnTimerExpired = useGameStore((s) => s.applyTurnTimerExpired)
+  const clearTimedOutPlayer = useGameStore((s) => s.clearTimedOutPlayer)
+  const setPlayerConnected = useLobbyStore((s) => s.setPlayerConnected)
   const addChatMessage = useChatStore((s) => s.addMessage)
   const addLogEntry = useEventLogStore((s) => s.addEntry)
   const [started, setStarted] = useState(false)
@@ -42,6 +47,25 @@ export function GameRoute() {
       navigate(`/join/${gameId}`, { replace: true })
       return
     }
+
+    // The WS socket only sends `lobby_state` while the game is still in the
+    // LOBBY status -- reconnecting into an already-started game gets just a
+    // `game_state` snapshot (router.py's game_ws), so the roster (names,
+    // seats, teams) would otherwise never arrive on a page refresh. Fetch it
+    // once over REST regardless; a lobby_state over WS (if any) simply
+    // overwrites it later with live data.
+    getLobby(gameId)
+      .then((lobby) =>
+        applyLobbyState({
+          players: lobby.players,
+          host_id: lobby.host_id,
+          settings: {
+            target_score: lobby.target_score,
+            discard_visibility: lobby.discard_visibility,
+          },
+        }),
+      )
+      .catch(() => {})
 
     connect(gameId, session.playerId, session.sessionToken, (message) => {
       if (isLobbyStateMessage(message)) {
@@ -66,6 +90,10 @@ export function GameRoute() {
           .players.find((p) => p.id === message.data.player_id)
         const name = player?.name ?? message.data.player_id
         addLogEntry(`${name} ${message.data.connected ? 'подключился' : 'отключился'}`)
+        setPlayerConnected(message.data.player_id, message.data.connected)
+        if (message.data.connected) clearTimedOutPlayer(message.data.player_id)
+      } else if (isTurnTimerExpiredMessage(message)) {
+        applyTurnTimerExpired(message.data.player_id)
       }
     })
 

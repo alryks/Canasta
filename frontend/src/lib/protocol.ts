@@ -8,6 +8,7 @@ export interface LobbyPlayer {
   team_id: string | null
   connected: boolean
   is_host: boolean
+  is_bot: boolean
 }
 
 export interface LobbyStateMessage {
@@ -97,9 +98,6 @@ export interface ChatMessageMessage {
   data: { from: string; text: string; ts: string }
 }
 
-// turn_timer_expired stays covered by OtherMessage for now -- nothing in
-// phase 7 needs to branch on it yet (it lands with the reconnect UX polish
-// in phase 10).
 export interface OtherMessage {
   type: string
   data: unknown
@@ -156,4 +154,10 @@ export function isChatMessageMessage(
   message: ServerMessage,
 ): message is ChatMessageMessage {
   return message.type === 'chat_message'
+}
+
+export function isTurnTimerExpiredMessage(
+  message: ServerMessage,
+): message is TurnTimerExpiredMessage {
+  return message.type === 'turn_timer_expired'
 }

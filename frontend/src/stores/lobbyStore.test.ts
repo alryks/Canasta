@@ -16,6 +16,7 @@ describe('useLobbyStore', () => {
           team_id: 'A',
           connected: true,
           is_host: true,
+          is_bot: false,
         },
       ],
       settings: { target_score: 3000, discard_visibility: 'FULL' },
@@ -32,7 +33,7 @@ describe('useLobbyStore', () => {
   it('reset clears back to the initial empty lobby', () => {
     useLobbyStore.getState().applyLobbyState({
       players: [
-        { id: 'p1', name: 'Alice', seat: 0, team_id: 'A', connected: true, is_host: true },
+        { id: 'p1', name: 'Alice', seat: 0, team_id: 'A', connected: true, is_host: true, is_bot: false },
       ],
       settings: { target_score: 3000, discard_visibility: 'FULL' },
       host_id: 'p1',

@@ -82,6 +82,27 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().lastActionError).toBeNull()
   })
 
+  it('records a turn timeout and clears it once the turn moves on', () => {
+    useGameStore.getState().applyGameState(gameState({ turn_player_id: 'p1' }))
+    useGameStore.getState().applyTurnTimerExpired('p1')
+    expect(useGameStore.getState().timedOutPlayerId).toBe('p1')
+
+    useGameStore.getState().applyGameState(gameState({ turn_player_id: 'p1' }))
+    expect(useGameStore.getState().timedOutPlayerId).toBe('p1')
+
+    useGameStore.getState().applyGameState(gameState({ turn_player_id: 'p2' }))
+    expect(useGameStore.getState().timedOutPlayerId).toBeNull()
+  })
+
+  it('clears a timed-out player only when it matches (e.g. on reconnect)', () => {
+    useGameStore.getState().applyTurnTimerExpired('p1')
+    useGameStore.getState().clearTimedOutPlayer('p2')
+    expect(useGameStore.getState().timedOutPlayerId).toBe('p1')
+
+    useGameStore.getState().clearTimedOutPlayer('p1')
+    expect(useGameStore.getState().timedOutPlayerId).toBeNull()
+  })
+
   it('resets to initial state', () => {
     useGameStore.getState().applyGameState(gameState())
     useGameStore.getState().applyGameOver('A')

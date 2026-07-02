@@ -4,10 +4,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameStateData } from '../lib/protocol'
 import { useChatStore } from '../stores/chatStore'
 import { useConnectionStore } from '../stores/connectionStore'
+import { useDragStore } from '../stores/dragStore'
 import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameStore } from '../stores/gameStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 import { GamePage } from './GamePage'
+
+function dragCardTo(cardEl: Element, dropZoneSelector: string) {
+  const zoneEl = document.querySelector(dropZoneSelector)
+  if (!zoneEl) throw new Error(`drop zone not found: ${dropZoneSelector}`)
+  document.elementFromPoint = vi.fn().mockReturnValue(zoneEl)
+
+  cardEl.dispatchEvent(
+    new PointerEvent('pointerdown', { clientX: 0, clientY: 0, button: 0, bubbles: true }),
+  )
+  window.dispatchEvent(new PointerEvent('pointermove', { clientX: 40, clientY: 0 }))
+  window.dispatchEvent(new PointerEvent('pointerup'))
+}
 
 function baseGameState(overrides: Partial<GameStateData> = {}): GameStateData {
   return {
@@ -50,10 +63,10 @@ function baseGameState(overrides: Partial<GameStateData> = {}): GameStateData {
 function setupPlayers() {
   useLobbyStore.setState({
     players: [
-      { id: 'p1', name: 'Alice', seat: 0, team_id: 'A', connected: true, is_host: true },
-      { id: 'p2', name: 'Bob', seat: 1, team_id: 'B', connected: true, is_host: false },
-      { id: 'p3', name: 'Carol', seat: 2, team_id: 'A', connected: true, is_host: false },
-      { id: 'p4', name: 'Dave', seat: 3, team_id: 'B', connected: true, is_host: false },
+      { id: 'p1', name: 'Alice', seat: 0, team_id: 'A', connected: true, is_host: true, is_bot: false },
+      { id: 'p2', name: 'Bob', seat: 1, team_id: 'B', connected: true, is_host: false, is_bot: false },
+      { id: 'p3', name: 'Carol', seat: 2, team_id: 'A', connected: true, is_host: false, is_bot: false },
+      { id: 'p4', name: 'Dave', seat: 3, team_id: 'B', connected: true, is_host: false, is_bot: false },
     ],
     hostId: 'p1',
     settings: { targetScore: 5000, discardVisibility: 'TOP_ONLY' },
@@ -69,6 +82,7 @@ describe('GamePage', () => {
     useGameStore.getState().reset()
     useChatStore.getState().reset()
     useEventLogStore.getState().reset()
+    useDragStore.getState().endDrag()
     setupPlayers()
     send = vi.fn()
     useConnectionStore.setState({
@@ -111,7 +125,7 @@ describe('GamePage', () => {
     await userEvent.click(screen.getByText('Выложить новый мелд'))
 
     expect(send).toHaveBeenCalledWith('create_meld', { card_ids: ['c1', 'c2'] })
-    expect(screen.getByText('7♥')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '7♥' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('only enables discard once exactly one card is selected', async () => {
@@ -142,6 +156,67 @@ describe('GamePage', () => {
       wild_card_id: 'w1',
       replacement_card_id: 'c1',
     })
+  })
+
+  it('discards a dragged hand card dropped on the discard pile', () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    render(<GamePage />)
+
+    dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="discard"]')
+    expect(send).toHaveBeenCalledWith('discard', { card_id: 'c1' })
+  })
+
+  it('adds a dragged hand card to an own-team meld', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        melds: {
+          A: [
+            {
+              id: 'm2',
+              team_id: 'A',
+              kind: 'SET',
+              rank_or_suit_anchor: '4',
+              slots: [
+                { id: 'c9', rank: '4', suit: 'HEARTS' },
+                { id: 'c10', rank: '4', suit: 'SPADES' },
+              ],
+            },
+          ],
+          B: [],
+        },
+      }),
+    )
+    render(<GamePage />)
+
+    dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="meld:m2"]')
+    expect(send).toHaveBeenCalledWith('add_to_meld', { meld_id: 'm2', card_ids: ['c1'] })
+  })
+
+  it('steals a wild card by dragging a hand card onto it', async () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    render(<GamePage />)
+
+    await userEvent.click(screen.getByText(/SET 8/))
+    dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="wild:m1:w1"]')
+
+    expect(send).toHaveBeenCalledWith('steal_wild', {
+      meld_id: 'm1',
+      wild_card_id: 'w1',
+      replacement_card_id: 'c1',
+    })
+  })
+
+  it('draws from the discard pile by dragging its top card into the hand', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        turn_phase: 'DRAW',
+        discard_pile: [{ id: 'd1', rank: '9', suit: 'CLUBS' }],
+      }),
+    )
+    render(<GamePage />)
+
+    dragCardTo(screen.getByText('9♣'), '[data-drop-zone="hand"]')
+    expect(send).toHaveBeenCalledWith('draw_discard', {})
   })
 
   it("shows the threshold indicator and concede button while the viewer's team is not opened", () => {
@@ -235,5 +310,36 @@ describe('GamePage', () => {
     await userEvent.click(screen.getByText('Отправить'))
 
     expect(send).toHaveBeenCalledWith('send_chat', { text: 'привет' })
+  })
+
+  it('shows an offline countdown for a disconnected turn player', () => {
+    useGameStore.getState().applyGameState(baseGameState({ turn_player_id: 'p2' }))
+    useLobbyStore.getState().setPlayerConnected('p2', false)
+    render(<GamePage />)
+
+    expect(screen.getByText(/Bob офлайн/)).toBeInTheDocument()
+    expect(screen.queryByText(/Пропустить ход/)).not.toBeInTheDocument()
+  })
+
+  it('lets the host skip a timed-out turn with a penalty', async () => {
+    useGameStore.getState().applyGameState(baseGameState({ turn_player_id: 'p2' }))
+    useLobbyStore.getState().setPlayerConnected('p2', false)
+    useGameStore.getState().applyTurnTimerExpired('p2')
+    render(<GamePage />)
+
+    const skipButton = screen.getByText('Пропустить ход Bob со штрафом')
+    await userEvent.click(skipButton)
+    expect(send).toHaveBeenCalledWith('skip_turn_with_penalty', {})
+  })
+
+  it("doesn't offer the skip button to a non-host viewer", () => {
+    useConnectionStore.setState({ playerId: 'p2' })
+    useGameStore.getState().applyGameState(baseGameState({ turn_player_id: 'p3' }))
+    useLobbyStore.getState().setPlayerConnected('p3', false)
+    useGameStore.getState().applyTurnTimerExpired('p3')
+    render(<GamePage />)
+
+    expect(screen.queryByText(/Пропустить ход/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Хост может пропустить его ход/)).toBeInTheDocument()
   })
 })
