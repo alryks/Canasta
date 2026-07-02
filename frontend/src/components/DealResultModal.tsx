@@ -25,24 +25,32 @@ export function DealResultModal({
   onDismiss,
 }: DealResultModalProps) {
   return (
-    <div role="dialog" aria-label="deal-result">
-      <h2>Сдача №{dealNumber} завершена</h2>
-      {Object.entries(scoresBreakdown).map(([teamId, breakdown]) => (
-        <section key={teamId} aria-label={`breakdown-${teamId}`}>
-          <h3>Команда {teamId}</h3>
-          <ul>
-            {BREAKDOWN_LABELS.map(([key, label]) => (
-              <li key={key}>
-                {label}: {breakdown[key]}
-              </li>
-            ))}
-          </ul>
-          <p>Счёт партии: {teamScoresAfter[teamId]}</p>
-        </section>
-      ))}
-      <button type="button" onClick={onDismiss}>
-        {nextDeal ? 'Продолжить' : 'Закрыть'}
-      </button>
+    <div className="modal-overlay">
+      <div role="dialog" aria-label="deal-result" className="panel modal-panel">
+        <h2>Сдача №{dealNumber} завершена</h2>
+        <div className="deal-breakdown">
+          {Object.entries(scoresBreakdown).map(([teamId, breakdown]) => (
+            <section
+              key={teamId}
+              aria-label={`breakdown-${teamId}`}
+              className="deal-breakdown-team"
+            >
+              <h3>Команда {teamId}</h3>
+              <ul>
+                {BREAKDOWN_LABELS.map(([key, label]) => (
+                  <li key={key} className={key === 'total' ? 'total-row' : ''}>
+                    {label}: {breakdown[key]}
+                  </li>
+                ))}
+              </ul>
+              <p>Счёт партии: {teamScoresAfter[teamId]}</p>
+            </section>
+          ))}
+        </div>
+        <button type="button" className="btn btn-primary" onClick={onDismiss}>
+          {nextDeal ? 'Продолжить' : 'Закрыть'}
+        </button>
+      </div>
     </div>
   )
 }

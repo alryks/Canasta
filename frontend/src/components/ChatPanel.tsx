@@ -40,31 +40,36 @@ export function ChatPanel({
   }
 
   return (
-    <div>
-      <button type="button" aria-expanded={open} onClick={toggle}>
-        Чат{unreadCount > 0 ? ` (${unreadCount})` : ''}
-      </button>
-
+    <div className="side-panel">
       {open && (
-        <>
-          <ul aria-label="chat-messages">
+        <div className="side-panel-body">
+          <ul aria-label="chat-messages" className="side-panel-messages">
             {messages.map((message, i) => (
               <li key={i}>
                 {playerNames[message.from] ?? message.from}: {message.text}
               </li>
             ))}
           </ul>
-          <form onSubmit={handleSubmit}>
-            <label htmlFor="chat-input">Сообщение</label>
+          <form onSubmit={handleSubmit} className="side-panel-form">
+            <label htmlFor="chat-input" className="visually-hidden">
+              Сообщение
+            </label>
             <input
               id="chat-input"
+              className="input"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              placeholder="Написать в чат…"
             />
-            <button type="submit">Отправить</button>
+            <button type="submit" className="btn btn-icon">
+              Отправить
+            </button>
           </form>
-        </>
+        </div>
       )}
+      <button type="button" className="btn btn-primary" aria-expanded={open} onClick={toggle}>
+        Чат{unreadCount > 0 ? ` (${unreadCount})` : ''}
+      </button>
     </div>
   )
 }

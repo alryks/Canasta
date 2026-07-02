@@ -13,7 +13,7 @@ export function ConcedeButton({ visible, onConcede }: ConcedeButtonProps) {
   if (!visible) return null
 
   return (
-    <button type="button" onClick={onConcede}>
+    <button type="button" className="btn btn-danger" onClick={onConcede}>
       Не могу выложить
     </button>
   )

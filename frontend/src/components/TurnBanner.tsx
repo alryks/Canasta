@@ -22,7 +22,7 @@ export function TurnBanner({
   const phaseLabel = PHASE_LABELS[turnPhase] ?? turnPhase
 
   return (
-    <p>
+    <p className={`turn-banner${isMyTurn ? ' is-my-turn' : ''}`}>
       {isMyTurn ? 'Ваш ход' : `Ходит ${turnPlayerName}`} — {phaseLabel}
     </p>
   )

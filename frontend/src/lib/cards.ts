@@ -7,6 +7,17 @@ const SUIT_SYMBOLS: Record<string, string> = {
   CLUBS: '♣',
 }
 
+const RED_SUITS = new Set(['HEARTS', 'DIAMONDS'])
+
+export function suitSymbol(suit: string | null): string {
+  if (!suit) return '★'
+  return SUIT_SYMBOLS[suit] ?? suit
+}
+
+export function isRedSuit(suit: string | null): boolean {
+  return suit !== null && RED_SUITS.has(suit)
+}
+
 export function cardLabel(card: Card): string {
   if (!card.suit) return card.rank
   return `${card.rank}${SUIT_SYMBOLS[card.suit] ?? card.suit}`

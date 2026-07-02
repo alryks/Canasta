@@ -28,21 +28,28 @@ export function JoinPage() {
   }
 
   return (
-    <main>
-      <h1>Присоединиться к игре</h1>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="join-name">Ваше имя</label>
-        <input
-          id="join-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
-        />
-        <button type="submit" disabled={submitting}>
-          Войти
-        </button>
-      </form>
-      {error && <p role="alert">{error}</p>}
+    <main className="page-shell">
+      <div className="panel panel-narrow">
+        <h1 className="brand-title">Присоединиться к игре</h1>
+        <p className="brand-subtitle">Введите имя, чтобы сесть за стол</p>
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label htmlFor="join-name">Ваше имя</label>
+            <input
+              id="join-name"
+              className="input"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              autoFocus
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
+            {submitting ? 'Входим…' : 'Войти'}
+          </button>
+        </form>
+        {error && <p role="alert" className="error-text">{error}</p>}
+      </div>
     </main>
   )
 }

@@ -13,7 +13,7 @@ export function LobbySettingsPanel({
 }: LobbySettingsPanelProps) {
   if (!isHost) {
     return (
-      <p>
+      <p className="status-line">
         Цель: {targetScore} очков. Видимость сброса:{' '}
         {discardVisibility === 'FULL' ? 'вся стопка' : 'только верхняя карта'}.
       </p>
@@ -22,25 +22,31 @@ export function LobbySettingsPanel({
 
   return (
     <div>
-      <label htmlFor="target-score">Целевой счёт</label>
-      <input
-        id="target-score"
-        type="number"
-        min={1000}
-        step={500}
-        value={targetScore}
-        onChange={(event) => onChange({ target_score: Number(event.target.value) })}
-      />
+      <div className="field">
+        <label htmlFor="target-score">Целевой счёт</label>
+        <input
+          id="target-score"
+          className="input"
+          type="number"
+          min={1000}
+          step={500}
+          value={targetScore}
+          onChange={(event) => onChange({ target_score: Number(event.target.value) })}
+        />
+      </div>
 
-      <label htmlFor="discard-visibility">Видимость сброса</label>
-      <select
-        id="discard-visibility"
-        value={discardVisibility}
-        onChange={(event) => onChange({ discard_visibility: event.target.value })}
-      >
-        <option value="TOP_ONLY">Только верхняя карта</option>
-        <option value="FULL">Вся стопка</option>
-      </select>
+      <div className="field">
+        <label htmlFor="discard-visibility">Видимость сброса</label>
+        <select
+          id="discard-visibility"
+          className="input"
+          value={discardVisibility}
+          onChange={(event) => onChange({ discard_visibility: event.target.value })}
+        >
+          <option value="TOP_ONLY">Только верхняя карта</option>
+          <option value="FULL">Вся стопка</option>
+        </select>
+      </div>
     </div>
   )
 }

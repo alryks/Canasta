@@ -15,10 +15,16 @@ export function ThresholdIndicator({
   threshold,
 }: ThresholdIndicatorProps) {
   if (accumulated >= threshold) return null
+  const pct = Math.min(100, Math.round((accumulated / threshold) * 100))
 
   return (
-    <p aria-label={`threshold-${teamId}`}>
-      Порог открытия команды {teamId}: {accumulated}/{threshold}
-    </p>
+    <div aria-label={`threshold-${teamId}`} className="threshold-indicator">
+      <p className="threshold-label">
+        Порог открытия: {accumulated}/{threshold}
+      </p>
+      <div className="threshold-bar-track">
+        <div className="threshold-bar-fill" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   )
 }
