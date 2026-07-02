@@ -1,0 +1,24 @@
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir uv
+
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY . .
+RUN uv sync --frozen --no-dev
+
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+COPY --from=builder /app /app
+ENV PATH="/app/.venv/bin:$PATH"
+
+EXPOSE 8000
+
+# Migrations run on every boot -- idempotent, and this is the only place
+# that reliably has both the final schema and a live DATABASE_URL.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
