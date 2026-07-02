@@ -19,7 +19,8 @@ describe('ChatPanel', () => {
         onOpen={vi.fn()}
       />,
     )
-    expect(screen.getByText('Чат (3)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Чат/ })).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument()
   })
 
   it('reveals messages with player names and marks them read on open', async () => {
@@ -34,11 +35,13 @@ describe('ChatPanel', () => {
       />,
     )
 
-    await userEvent.click(screen.getByText('Чат (2)'))
+    await userEvent.click(screen.getByRole('button', { name: /Чат/ }))
 
     expect(onOpen).toHaveBeenCalled()
-    expect(screen.getByText('Alice: hi all')).toBeInTheDocument()
-    expect(screen.getByText('Bob: hey')).toBeInTheDocument()
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+    expect(screen.getByText('hi all')).toBeInTheDocument()
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('hey')).toBeInTheDocument()
   })
 
   it('sends the typed message and clears the input', async () => {
@@ -53,7 +56,7 @@ describe('ChatPanel', () => {
       />,
     )
 
-    await userEvent.click(screen.getByText('Чат'))
+    await userEvent.click(screen.getByRole('button', { name: /Чат/ }))
     const input = screen.getByLabelText('Сообщение')
     await userEvent.type(input, 'hello there')
     await userEvent.click(screen.getByText('Отправить'))
@@ -74,7 +77,7 @@ describe('ChatPanel', () => {
       />,
     )
 
-    await userEvent.click(screen.getByText('Чат'))
+    await userEvent.click(screen.getByRole('button', { name: /Чат/ }))
     await userEvent.click(screen.getByText('Отправить'))
 
     expect(onSend).not.toHaveBeenCalled()

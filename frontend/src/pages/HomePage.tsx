@@ -30,7 +30,6 @@ export function HomePage() {
     <main className="page-shell">
       <div className="panel panel-narrow">
         <h1 className="brand-title">🃏 Канаста Online</h1>
-        <p className="brand-subtitle">Классическая карточная игра для четверых — по ссылке, без регистрации</p>
         <form onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="host-name">Ваше имя</label>

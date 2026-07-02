@@ -11,10 +11,13 @@ import {
   isPlayerConnectionMessage,
   isTurnTimerExpiredMessage,
 } from '../lib/protocol'
+import { isOpeningThresholdRollback, translateActionError } from '../lib/errors'
 import { loadSession } from '../lib/session'
+import { diffGameStates } from '../lib/gameStateDiff'
 import { useChatStore } from '../stores/chatStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useEventLogStore } from '../stores/eventLogStore'
+import { useGameFeedbackStore } from '../stores/gameFeedbackStore'
 import { useGameStore } from '../stores/gameStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 import { GamePage } from './GamePage'
@@ -39,6 +42,7 @@ export function GameRoute() {
   const setPlayerConnected = useLobbyStore((s) => s.setPlayerConnected)
   const addChatMessage = useChatStore((s) => s.addMessage)
   const addLogEntry = useEventLogStore((s) => s.addEntry)
+  const publishFeedback = useGameFeedbackStore((s) => s.publish)
   const [started, setStarted] = useState(false)
 
   useEffect(() => {
@@ -71,6 +75,16 @@ export function GameRoute() {
       if (isLobbyStateMessage(message)) {
         applyLobbyState(message.data)
       } else if (isGameStateMessage(message)) {
+        const previousGameState = useGameStore.getState().state
+        const playerNames = Object.fromEntries(
+          useLobbyStore.getState().players.map((p) => [p.id, p.name]),
+        )
+        const { events, newCardIds } = diffGameStates(previousGameState, message.data, {
+          viewerId: session.playerId,
+          playerNames,
+        })
+        for (const event of events) addLogEntry(event.text)
+        publishFeedback(events.find((event) => event.type !== 'turn') ?? events.at(-1) ?? null, newCardIds)
         setStarted(true)
         applyGameState(message.data)
       } else if (isDealResultMessage(message)) {
@@ -81,7 +95,20 @@ export function GameRoute() {
         addLogEntry(`Игра окончена — победила команда ${message.data.winner_team}`)
       } else if (isActionErrorMessage(message)) {
         applyActionError(message.data.reason)
-        addLogEntry(`Ошибка: ${message.data.reason}`)
+        if (isOpeningThresholdRollback(message.data.reason)) {
+          const text = translateActionError(message.data.reason)
+          addLogEntry(text)
+          publishFeedback(
+            {
+              type: 'rollback',
+              actorId: session.playerId,
+              text: 'Порог открытия не набран — карты вернулись в руку',
+            },
+            [],
+          )
+        } else {
+          addLogEntry(`Ошибка: ${message.data.reason}`)
+        }
       } else if (isChatMessageMessage(message)) {
         addChatMessage(message.data)
       } else if (isPlayerConnectionMessage(message)) {

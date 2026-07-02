@@ -60,6 +60,16 @@ def build_client_game_state(game_state: GameState, viewer_id: str) -> dict:
             "thresholds": deal.thresholds,
             "turn_player_id": deal.turn_state.current_player_id,
             "turn_phase": deal.turn_state.phase.value,
+            # Turn-progress flags (FR-22): the client needs these to know
+            # whether a discard is currently legal and whether the
+            # "не могу выложить" penalty escape hatch applies.
+            "must_meld_after_pickup": deal.turn_state.must_meld_after_pickup,
+            "melds_created_this_turn": deal.turn_state.melds_created_this_turn,
+            "pending_penalty": deal.turn_state.pending_penalty,
+            "team_opened": {
+                team_id: team.is_opened for team_id, team in deal.teams.items()
+            },
+            "discard_count": len(deal.discard_pile),
             "turn_accumulator": {
                 team_id: team.turn_accumulator for team_id, team in deal.teams.items()
             },

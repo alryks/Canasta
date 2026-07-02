@@ -88,6 +88,7 @@ def _turn_state_to_dict(turn_state: TurnState) -> dict:
         "must_meld_after_pickup": turn_state.must_meld_after_pickup,
         "melds_created_this_turn": turn_state.melds_created_this_turn,
         "pending_penalty": turn_state.pending_penalty,
+        "created_meld_ids": list(turn_state.created_meld_ids),
     }
 
 
@@ -98,6 +99,8 @@ def _turn_state_from_dict(data: dict) -> TurnState:
         must_meld_after_pickup=data["must_meld_after_pickup"],
         melds_created_this_turn=data["melds_created_this_turn"],
         pending_penalty=data["pending_penalty"],
+        # .get: states persisted before this field existed have no key
+        created_meld_ids=tuple(data.get("created_meld_ids", ())),
     )
 
 

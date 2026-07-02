@@ -127,14 +127,19 @@ def _connect_and_start(
         bot_seat1_id = after_discard["data"]["turn_player_id"]
         assert bot_seat1_id not in (host_id, bob_id)
 
-        # nothing sent for the bot from here -- just drain the broadcasts its
-        # own draw_deck + discard produce
+        # nothing sent for the bot from here -- just drain the broadcasts of
+        # its own moves (draw, any melds, discard) until the turn hands off
         after_bot_draw = {pid: s.receive_json() for pid, s in sockets.items()}
         assert after_bot_draw[host_id]["data"]["turn_player_id"] == bot_seat1_id
         assert after_bot_draw[host_id]["data"]["turn_phase"] == "ACT"
 
-        after_bot_discard = {pid: s.receive_json() for pid, s in sockets.items()}
-        return after_bot_discard, {"host_id": host_id, "bob_id": bob_id, "bot_seat1_id": bot_seat1_id}
+        for _ in range(30):
+            states = {pid: s.receive_json() for pid, s in sockets.items()}
+            if states[host_id]["data"]["turn_player_id"] != bot_seat1_id:
+                break
+        else:
+            raise AssertionError("bot never finished its turn")
+        return states, {"host_id": host_id, "bob_id": bob_id, "bot_seat1_id": bot_seat1_id}
 
 
 def test_bot_auto_plays_its_turn_without_any_bot_intent(
@@ -142,10 +147,10 @@ def test_bot_auto_plays_its_turn_without_any_bot_intent(
 ) -> None:
     monkeypatch.setattr(bot_runner, "BOT_MOVE_DELAY_SECONDS", 0.01)
 
-    after_bot_discard, ids = _connect_and_start(client, redis_store)
+    after_bot_turn, ids = _connect_and_start(client, redis_store)
 
-    assert after_bot_discard[ids["host_id"]]["data"]["turn_player_id"] == ids["bob_id"]
-    assert after_bot_discard[ids["host_id"]]["data"]["turn_phase"] == "DRAW"
+    assert after_bot_turn[ids["host_id"]]["data"]["turn_player_id"] == ids["bob_id"]
+    assert after_bot_turn[ids["host_id"]]["data"]["turn_phase"] == "DRAW"
 
 
 def test_host_can_force_skip_a_stuck_bot_without_a_timeout(

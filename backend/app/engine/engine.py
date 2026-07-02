@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.engine.actions import (
     Action,
@@ -17,7 +17,7 @@ from app.engine.actions import (
     StealWild,
 )
 from app.engine.errors import IllegalActionError
-from app.engine.models import Card, TeamTable, generate_deck, opening_threshold
+from app.engine.models import Card, Meld, TeamTable, generate_deck, opening_threshold
 from app.engine.rules import add_to_meld as rules_add_to_meld
 from app.engine.rules import build_new_meld, steal_wild as rules_steal_wild
 from app.engine.scoring import DealScoreBreakdown, ExitType, score_deal
@@ -34,10 +34,16 @@ from app.engine.turn_fsm import (
     go_out_clean,
     record_meld_created,
     start_turn,
+    can_discard,
+    discard_incurring_penalty,
 )
 
 HAND_SIZE = 13
 _meld_id_counter = itertools.count(1)
+
+# pending_notice value: the discard was rejected and this turn's melds were
+# returned to the hand because the opening threshold wasn't covered
+OPENING_THRESHOLD_NOTICE = "opening threshold not met - melds returned to hand"
 
 
 @dataclass
@@ -54,6 +60,10 @@ class DealState:
     deal_over: bool = False
     exit_team_id: str | None = None
     exit_type: ExitType | None = None
+    # transient, one-shot: set by apply_action when an action "succeeded" but
+    # needs a player-facing explanation (e.g. melds rolled back); the WS layer
+    # pops it before persisting, so it never reaches Redis
+    pending_notice: str | None = None
 
     def team_of(self, player_id: str) -> TeamTable:
         return self.teams[self.player_team[player_id]]
@@ -105,8 +115,13 @@ def start_new_deal(
     team_scores: dict[str, int],
     *,
     rng: random.Random | None = None,
+    first_player_id: str | None = None,
 ) -> DealState:
-    """Deal 13 cards to each player from a freshly shuffled 108-card deck."""
+    """Deal 13 cards to each player from a freshly shuffled 108-card deck.
+
+    `first_player_id` rotates the opening turn between deals (rules.md
+    section 5: the deal passes clockwise); defaults to the first seat.
+    """
     deck = generate_deck()
     (rng or random).shuffle(deck)
 
@@ -121,6 +136,9 @@ def start_new_deal(
         team_id: opening_threshold(team_scores.get(team_id, 0)) for team_id in team_ids
     }
 
+    if first_player_id is not None and first_player_id not in player_order:
+        raise ValueError(f"first_player_id {first_player_id!r} is not in player_order")
+
     return DealState(
         deck=deck,
         discard_pile=[],
@@ -129,7 +147,7 @@ def start_new_deal(
         thresholds=thresholds,
         player_order=player_order,
         player_team=player_team,
-        turn_state=start_turn(player_order[0]),
+        turn_state=start_turn(first_player_id or player_order[0]),
     )
 
 
@@ -155,15 +173,45 @@ def _team_has_closed_canasta(team_table: TeamTable) -> bool:
     return any(meld.is_closed for meld in team_table.melds)
 
 
+def _has_no_playable_cards(hand: list[Card]) -> bool:
+    return all(card.is_three for card in hand)
+
+
 def _maybe_open_team(team_table: TeamTable, threshold: int) -> None:
     if not team_table.is_opened and team_table.turn_accumulator >= threshold:
         team_table.is_opened = True
 
 
+def _opening_value(meld: Meld) -> int:
+    return meld.point_value + meld.canasta_bonus
+
+
+def _rollback_created_melds(
+    deal: DealState, player_id: str, team_table: TeamTable
+) -> None:
+    """Return this turn's freshly created melds (with everything added to
+    them) to the acting player's hand -- used when an unopened team tries to
+    end the turn below the opening threshold (rules.md section 10)."""
+    created = set(deal.turn_state.created_meld_ids)
+    kept: list[Meld] = []
+    for meld in team_table.melds:
+        if meld.id in created:
+            deal.hands[player_id].extend(c for c in meld.slots if c is not None)
+        else:
+            kept.append(meld)
+    team_table.melds = kept
+    team_table.turn_accumulator = 0
+    deal.turn_state = replace(
+        deal.turn_state, melds_created_this_turn=0, created_meld_ids=()
+    )
+
+
 def _maybe_auto_clean_exit(deal: DealState, player_id: str) -> None:
     """After a meld action empties the hand with a closed canasta, go out (FR-19)."""
     team_table = deal.team_of(player_id)
-    if deal.hands[player_id] or not _team_has_closed_canasta(team_table):
+    if not _has_no_playable_cards(deal.hands[player_id]) or not _team_has_closed_canasta(
+        team_table
+    ):
         return
     deal.turn_state = go_out_clean(
         deal.turn_state, hand_empty=True, team_has_closed_canasta=True
@@ -179,7 +227,11 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
     match action:
         case DrawDeck():
             if not deal.deck:
-                raise IllegalActionError("deck is empty")
+                deal.turn_state = replace(deal.turn_state, phase=TurnPhase.DEAL_END)
+                deal.deal_over = True
+                deal.exit_team_id = None
+                deal.exit_type = None
+                return deal
             deal.turn_state = draw_from_deck(deal.turn_state)
             deal.hands[player_id].append(deal.deck.pop())
 
@@ -191,24 +243,26 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
             deal.hands[player_id].extend(deal.discard_pile)
             deal.discard_pile = []
 
-        case CreateMeld(card_ids=card_ids):
+        case CreateMeld(card_ids=card_ids, wild_side=wild_side):
             hand = deal.hands[player_id]
             cards = _take_from_hand(hand, card_ids)
             team_id = deal.player_team[player_id]
             try:
-                meld = build_new_meld(f"m{next(_meld_id_counter)}", team_id, cards)
+                meld = build_new_meld(
+                    f"m{next(_meld_id_counter)}", team_id, cards, wild_side=wild_side
+                )
             except IllegalActionError:
                 hand.extend(cards)
                 raise
             team_table = deal.teams[team_id]
             team_table.melds.append(meld)
             if not team_table.is_opened:
-                team_table.turn_accumulator += meld.point_value
+                team_table.turn_accumulator += _opening_value(meld)
                 _maybe_open_team(team_table, deal.thresholds[team_id])
-            deal.turn_state = record_meld_created(deal.turn_state)
+            deal.turn_state = record_meld_created(deal.turn_state, meld.id)
             _maybe_auto_clean_exit(deal, player_id)
 
-        case AddToMeld(meld_id=meld_id, card_ids=card_ids):
+        case AddToMeld(meld_id=meld_id, card_ids=card_ids, wild_side=wild_side):
             hand = deal.hands[player_id]
             cards = _take_from_hand(hand, card_ids)
             team_id = deal.player_team[player_id]
@@ -221,13 +275,15 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
                 raise IllegalActionError(f"no such meld {meld_id} for this team")
             old_meld = team_table.melds[meld_idx]
             try:
-                new_meld = rules_add_to_meld(old_meld, team_id, cards)
+                new_meld = rules_add_to_meld(
+                    old_meld, team_id, cards, wild_side=wild_side
+                )
             except IllegalActionError:
                 hand.extend(cards)
                 raise
             team_table.melds[meld_idx] = new_meld
             if not team_table.is_opened:
-                added_value = new_meld.point_value - old_meld.point_value
+                added_value = _opening_value(new_meld) - _opening_value(old_meld)
                 team_table.turn_accumulator += added_value
                 _maybe_open_team(team_table, deal.thresholds[team_id])
             _maybe_auto_clean_exit(deal, player_id)
@@ -271,14 +327,40 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
             hand = deal.hands[player_id]
             [card] = _take_from_hand(hand, [card_id])
             team_table = deal.team_of(player_id)
-            threshold = deal.thresholds[deal.player_team[player_id]]
-            hand_empty_after = len(hand) == 0
+            team_id = deal.player_team[player_id]
+            threshold = deal.thresholds[team_id]
+
+            if (
+                not team_table.is_opened
+                and deal.turn_state.melds_created_this_turn > 0
+                and team_table.turn_accumulator < threshold
+            ):
+                # rules.md section 10: the opening must be fully covered
+                # within one turn. Instead of ending the turn with illegal
+                # melds on the table, reject the discard, hand this turn's
+                # melds back and let the player redo the turn.
+                hand.append(card)
+                _rollback_created_melds(deal, player_id, team_table)
+                deal.pending_notice = OPENING_THRESHOLD_NOTICE
+                return deal
+
+            threshold_met = team_table.turn_accumulator >= threshold
+            if discard_incurring_penalty(
+                deal.turn_state,
+                team_opened=team_table.is_opened,
+                threshold_met=threshold_met,
+            ):
+                deal.penalties[team_id] = (
+                    deal.penalties.get(team_id, 0) - CONCEDE_PENALTY_POINTS
+                )
+                deal.turn_state = replace(deal.turn_state, pending_penalty=True)
+            hand_empty_after = _has_no_playable_cards(hand)
             has_closed_canasta = _team_has_closed_canasta(team_table)
             try:
                 deal.turn_state = fsm_discard(
                     deal.turn_state,
                     team_opened=team_table.is_opened,
-                    threshold_met=team_table.turn_accumulator >= threshold,
+                    threshold_met=threshold_met,
                     hand_empty_after=hand_empty_after,
                     team_has_closed_canasta=has_closed_canasta,
                 )
@@ -286,6 +368,11 @@ def apply_action(deal: DealState, player_id: str, action: Action) -> DealState:
                 hand.append(card)
                 raise
             deal.discard_pile.append(card)
+            if not team_table.is_opened:
+                # rules.md section 10: the opening threshold must be covered
+                # within a single turn -- meld points laid this turn never
+                # carry over to help a later opening attempt.
+                team_table.turn_accumulator = 0
             if deal.turn_state.phase == TurnPhase.DEAL_END:
                 deal.deal_over = True
                 deal.exit_team_id = deal.player_team[player_id]
@@ -322,6 +409,9 @@ def force_skip_turn(deal: DealState, target_player_id: str) -> DealState:
 
     team_id = deal.player_team[target_player_id]
     deal.penalties[team_id] = deal.penalties.get(team_id, 0) - CONCEDE_PENALTY_POINTS
+    team_table = deal.teams[team_id]
+    if not team_table.is_opened:
+        team_table.turn_accumulator = 0
     next_player = deal.next_player(target_player_id)
     deal.turn_state = fsm_force_skip(deal.turn_state, next_player)
     return deal

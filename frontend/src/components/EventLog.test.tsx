@@ -12,14 +12,14 @@ describe('EventLog', () => {
   it('shows the entry count while collapsed, hiding the list', () => {
     render(<EventLog entries={entries} />)
 
-    expect(screen.getByText('Лента событий (2)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'События 2' })).toBeInTheDocument()
     expect(screen.queryByRole('list')).not.toBeInTheDocument()
   })
 
   it('reveals every entry on click', async () => {
     render(<EventLog entries={entries} />)
 
-    await userEvent.click(screen.getByText('Лента событий (2)'))
+    await userEvent.click(screen.getByRole('button', { name: 'События 2' }))
 
     expect(screen.getByText('Bob подключился')).toBeInTheDocument()
     expect(screen.getByText('Сдача №1 завершена')).toBeInTheDocument()

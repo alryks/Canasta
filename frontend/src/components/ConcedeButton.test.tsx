@@ -6,14 +6,17 @@ import { ConcedeButton } from './ConcedeButton'
 describe('ConcedeButton', () => {
   it('renders nothing when not visible', () => {
     render(<ConcedeButton visible={false} onConcede={vi.fn()} />)
-    expect(screen.queryByText('Не могу выложить')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Штраф −1000/)).not.toBeInTheDocument()
   })
 
-  it('sends concede_penalty on click when visible', async () => {
+  it('requires a confirming second click before conceding', async () => {
     const onConcede = vi.fn()
     render(<ConcedeButton visible onConcede={onConcede} />)
 
-    await userEvent.click(screen.getByText('Не могу выложить'))
-    expect(onConcede).toHaveBeenCalled()
+    await userEvent.click(screen.getByText(/Штраф −1000/))
+    expect(onConcede).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByText(/Подтвердить/))
+    expect(onConcede).toHaveBeenCalledTimes(1)
   })
 })

@@ -43,8 +43,8 @@ describe('SeatGrid', () => {
       />,
     )
 
-    const seats = screen.getByRole('list', { name: 'seats' })
-    expect(seats).toHaveTextContent('Alice (хост) — в сети')
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+    expect(screen.getByText('хост')).toBeInTheDocument()
     expect(screen.getAllByText(/свободно/)).toHaveLength(3)
   })
 
@@ -60,11 +60,10 @@ describe('SeatGrid', () => {
       />,
     )
 
-    const unseated = screen.getByRole('list', { name: 'unseated' })
-    expect(unseated).toHaveTextContent('Bob — офлайн')
+    expect(screen.getByText(/Bob · офлайн/)).toBeInTheDocument()
   })
 
-  it('lets the host assign an unseated player to an empty seat', async () => {
+  it('lets the host assign an unseated player via modal', async () => {
     const alice = player({ id: 'p1', name: 'Alice', seat: 0, is_host: true })
     const bob = player({ id: 'p2', name: 'Bob', seat: null })
     const onAssignSeat = vi.fn()
@@ -78,12 +77,30 @@ describe('SeatGrid', () => {
       />,
     )
 
-    await userEvent.selectOptions(
-      screen.getByLabelText('Посадить на место 2'),
-      'p2',
-    )
+    await userEvent.click(screen.getAllByText('Назначить')[0])
+    await userEvent.click(screen.getByRole('button', { name: 'Bob' }))
 
     expect(onAssignSeat).toHaveBeenCalledWith('p2', 1)
+  })
+
+  it('lets the host replace an occupied seat', async () => {
+    const alice = player({ id: 'p1', name: 'Alice', seat: 0, is_host: true })
+    const bob = player({ id: 'p2', name: 'Bob', seat: 1 })
+    const onAssignSeat = vi.fn()
+    render(
+      <SeatGrid
+        players={[alice, bob]}
+        hostId="p1"
+        isHost
+        onAssignSeat={onAssignSeat}
+        onAddBot={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(screen.getAllByText('Сменить')[0])
+    await userEvent.click(screen.getByRole('button', { name: /Bob/ }))
+
+    expect(onAssignSeat).toHaveBeenCalledWith('p2', 0)
   })
 
   it('does not offer seat assignment controls to non-host viewers', () => {
@@ -96,11 +113,11 @@ describe('SeatGrid', () => {
         onAddBot={vi.fn()}
       />,
     )
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+    expect(screen.queryByText('Назначить')).not.toBeInTheDocument()
     expect(screen.queryByText(/Добавить бота/)).not.toBeInTheDocument()
   })
 
-  it('lets the host add a bot to an empty seat', async () => {
+  it('lets the host add a bot from the assign modal', async () => {
     const onAddBot = vi.fn()
     render(
       <SeatGrid
@@ -112,14 +129,12 @@ describe('SeatGrid', () => {
       />,
     )
 
-    const addBotButtons = screen.getAllByText('🤖 Добавить бота')
-    expect(addBotButtons).toHaveLength(4)
-
-    await userEvent.click(addBotButtons[1])
+    await userEvent.click(screen.getAllByText('Назначить')[1])
+    await userEvent.click(screen.getByRole('button', { name: 'Добавить бота' }))
     expect(onAddBot).toHaveBeenCalledWith(1)
   })
 
-  it('shows a bot badge instead of online/offline for a bot player', () => {
+  it('shows bot status without emoji', () => {
     const bot = player({ id: 'p3', name: 'Бот 2', seat: 1, is_bot: true, connected: true })
     render(
       <SeatGrid
@@ -131,9 +146,7 @@ describe('SeatGrid', () => {
       />,
     )
 
-    const seats = screen.getByRole('list', { name: 'seats' })
-    expect(seats).toHaveTextContent('Бот 2 — бот')
-    expect(screen.getByText('🤖 бот')).toBeInTheDocument()
-    expect(screen.queryByText('в сети')).not.toBeInTheDocument()
+    expect(screen.getByText('бот')).toBeInTheDocument()
+    expect(screen.queryByText(/🤖/)).not.toBeInTheDocument()
   })
 })

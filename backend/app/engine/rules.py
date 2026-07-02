@@ -20,12 +20,31 @@ def _split_wild_natural(cards: list[Card]) -> tuple[list[Card], list[Card]]:
     return naturals, wilds
 
 
-def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
+def _build_sequence_slots(
+    cards: list[Card],
+    *,
+    wild_side: str = "low",
+    preferred_wild_positions: dict[str, int] | None = None,
+) -> tuple[int, list[Card]]:
     """Fit `cards` (single suit, distinct natural ranks + wild fillers) into a
-    contiguous window of MELDABLE_RANKS. Returns (anchor_start, ordered slots)."""
+    contiguous window of MELDABLE_RANKS. Returns (anchor_start, ordered slots).
+
+    `wild_side` decides where wilds that don't bridge an internal gap end up:
+    "low" extends the window toward 4, "high" toward the Ace (FR: the player
+    picks the side). `preferred_wild_positions` (card id -> absolute rank
+    index) keeps wilds already sitting in the meld at their old rank when the
+    meld is rebuilt by add_to_meld, so adding cards never silently teleports
+    an existing wild to the other end.
+    """
+    if wild_side not in ("low", "high"):
+        raise IllegalActionError(f"wild_side must be 'low' or 'high', got {wild_side!r}")
+    preferred = preferred_wild_positions or {}
+
     naturals, wilds = _split_wild_natural(cards)
     if not naturals:
         raise IllegalActionError("a sequence needs at least one natural card")
+    if any(c.rank not in MELDABLE_RANKS for c in naturals):
+        raise IllegalActionError("threes can never be part of a meld")
 
     suit = naturals[0].suit
     if any(c.suit != suit for c in naturals):
@@ -39,30 +58,55 @@ def _build_sequence_slots(cards: list[Card]) -> tuple[int, list[Card]]:
 
     low, high = indices[0], indices[-1]
     window_needed = high - low + 1
-    extra = len(cards) - window_needed
-    if extra < 0:
+    if len(cards) < window_needed:
         raise IllegalActionError(
             "not enough wild cards to bridge the gaps in this sequence"
         )
-    low_room = low
-    high_room = len(MELDABLE_RANKS) - 1 - high
-    if extra > low_room + high_room:
+
+    # Every anchor in [start_min, start_max] yields a window covering all
+    # naturals; the choice between them is exactly the low/high wild placement.
+    start_min = max(0, high - (len(cards) - 1))
+    start_max = min(low, len(MELDABLE_RANKS) - len(cards))
+    if start_min > start_max:
         raise IllegalActionError("sequence would have to run past 4 or past Ace")
-    anchor_start = low - min(extra, low_room)
+
+    natural_positions = set(indices)
+
+    def satisfied_count(start: int) -> int:
+        window = range(start, start + len(cards))
+        return sum(
+            1
+            for pos in preferred.values()
+            if pos in window and pos not in natural_positions
+        )
+
+    candidates = range(start_min, start_max + 1)
+    best_satisfied = max(satisfied_count(s) for s in candidates)
+    ties = [s for s in candidates if satisfied_count(s) == best_satisfied]
+    anchor_start = max(ties) if wild_side == "high" else min(ties)
 
     slots: list[Card | None] = [None] * len(cards)
     for card in naturals:
-        pos = MELDABLE_RANKS.index(card.rank) - anchor_start
-        slots[pos] = card
-    remaining_wilds = list(wilds)
-    for pos in range(len(cards)):
-        if slots[pos] is None:
-            slots[pos] = remaining_wilds.pop()
+        slots[MELDABLE_RANKS.index(card.rank) - anchor_start] = card
+
+    remaining_wilds = []
+    for card in wilds:
+        pos = preferred.get(card.id)
+        rel = pos - anchor_start if pos is not None else None
+        if rel is not None and 0 <= rel < len(cards) and slots[rel] is None:
+            slots[rel] = card
+        else:
+            remaining_wilds.append(card)
+    free = [i for i in range(len(cards)) if slots[i] is None]
+    for rel, card in zip(free, remaining_wilds):
+        slots[rel] = card
 
     return anchor_start, [c for c in slots if c is not None]
 
 
-def build_new_meld(meld_id: str, team_id: str, cards: list[Card]) -> Meld:
+def build_new_meld(
+    meld_id: str, team_id: str, cards: list[Card], *, wild_side: str = "low"
+) -> Meld:
     """Infer SET vs SEQUENCE vs WILD_CANASTA from the cards themselves.
 
     Given the wild<=natural constraint, a legal meld of size>=3 always has
@@ -97,7 +141,7 @@ def build_new_meld(meld_id: str, team_id: str, cards: list[Card]) -> Meld:
     sequence_result: tuple[int, list[Card]] | None = None
     if len(suits) == 1 and len(ranks) == len(naturals):
         try:
-            sequence_result = _build_sequence_slots(cards)
+            sequence_result = _build_sequence_slots(cards, wild_side=wild_side)
             can_be_sequence = True
         except IllegalActionError:
             can_be_sequence = False
@@ -135,7 +179,9 @@ def _sequence_anchor(meld: Meld) -> tuple[Suit, int]:
     return Suit(suit_value), MELDABLE_RANKS.index(Rank(start_rank_value))
 
 
-def add_to_meld(meld: Meld, team_id: str, cards: list[Card]) -> Meld:
+def add_to_meld(
+    meld: Meld, team_id: str, cards: list[Card], *, wild_side: str = "low"
+) -> Meld:
     if meld.team_id != team_id:
         raise IllegalActionError("cannot add cards to another team's meld")
     if meld.is_closed:
@@ -179,12 +225,21 @@ def add_to_meld(meld: Meld, team_id: str, cards: list[Card]) -> Meld:
         )
 
     if meld.kind == MeldKind.SEQUENCE:
-        suit, _anchor_start = _sequence_anchor(meld)
+        suit, old_anchor_start = _sequence_anchor(meld)
         if any(c.suit != suit for c in naturals):
             raise IllegalActionError(f"only {suit.value} cards fit into this sequence")
 
+        # Pin wilds already in the meld to their current ranks so only the
+        # newly added wilds move to the requested side.
+        preferred = {
+            c.id: old_anchor_start + i
+            for i, c in enumerate(meld.slots)
+            if c is not None and c.is_wild
+        }
         combined = [*meld.slots, *cards]
-        anchor_start, slots = _build_sequence_slots(combined)
+        anchor_start, slots = _build_sequence_slots(
+            combined, wild_side=wild_side, preferred_wild_positions=preferred
+        )
         anchor = f"{suit.value}:{MELDABLE_RANKS[anchor_start].value}"
         return Meld(
             id=meld.id,

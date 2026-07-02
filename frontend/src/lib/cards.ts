@@ -27,6 +27,57 @@ export function isWildRank(rank: string): boolean {
   return rank === 'JOKER' || rank === '2'
 }
 
+// Mirrors backend MELDABLE_RANKS / SEQUENCE_RANK_ORDER (ace high only).
+export const SEQUENCE_RANKS = ['4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+
+// "SPADES:5" -> where the sequence window starts. Null for sets/wild canastas.
+export function parseSequenceAnchor(
+  anchor: string,
+): { suit: string; startIndex: number } | null {
+  const [suit, rank] = anchor.split(':')
+  if (!suit || !rank) return null
+  const startIndex = SEQUENCE_RANKS.indexOf(rank)
+  return startIndex === -1 ? null : { suit, startIndex }
+}
+
+// Hand-sorting orders. Wilds lead, then ranks descending (ace high), threes
+// trail -- so the "useful" part of the hand reads left to right.
+const RANK_SORT_ORDER = ['JOKER', '2', 'A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3']
+const SUIT_SORT_ORDER = ['SPADES', 'HEARTS', 'CLUBS', 'DIAMONDS']
+
+function rankSortIndex(card: Card): number {
+  const i = RANK_SORT_ORDER.indexOf(card.rank)
+  return i === -1 ? RANK_SORT_ORDER.length : i
+}
+
+function suitSortIndex(card: Card): number {
+  if (card.suit === null) return -1 // jokers first
+  const i = SUIT_SORT_ORDER.indexOf(card.suit)
+  return i === -1 ? SUIT_SORT_ORDER.length : i
+}
+
+export function compareByRank(a: Card, b: Card): number {
+  return rankSortIndex(a) - rankSortIndex(b) || suitSortIndex(a) - suitSortIndex(b)
+}
+
+export function compareBySuit(a: Card, b: Card): number {
+  return suitSortIndex(a) - suitSortIndex(b) || rankSortIndex(a) - rankSortIndex(b)
+}
+
+function handGroup(card: Card): number {
+  if (isWildRank(card.rank)) return 0
+  if (card.rank === '3') return 2
+  return 1
+}
+
+export function compareForHand(a: Card, b: Card): number {
+  return (
+    handGroup(a) - handGroup(b) ||
+    suitSortIndex(a) - suitSortIndex(b) ||
+    rankSortIndex(a) - rankSortIndex(b)
+  )
+}
+
 export type CanastaStatus = 'open' | 'clean' | 'dirty' | 'wild'
 
 // The server never sends is_closed/canasta_type (plan section 9 mentions

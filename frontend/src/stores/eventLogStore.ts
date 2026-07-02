@@ -14,9 +14,8 @@ interface EventLogStore {
 const MAX_ENTRIES = 50
 let nextId = 0
 
-// Client-side stand-in for a real action feed: the server only ever sends
-// full snapshots (plan section 8), no discrete action events, so this logs
-// the notable *messages* that arrive rather than diffed game state.
+// Client-side action feed: the server sends full snapshots, so GameRoute logs
+// both notable messages and gameplay events inferred from adjacent snapshots.
 export const useEventLogStore = create<EventLogStore>((set) => ({
   entries: [],
 

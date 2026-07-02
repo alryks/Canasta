@@ -55,6 +55,35 @@ def test_discard_passes_turn_to_next_player(
         assert state["data"]["turn_player_id"] == player_ids[1]
 
 
+def test_discard_auto_penalty_after_pickup_without_meld(
+    started_game: dict, redis_store: RedisGameStore
+) -> None:
+    game_id = started_game["game_id"]
+    host_id = started_game["host_id"]
+    sockets = started_game["sockets"]
+    turn_player_id = started_game["states"][host_id]["data"]["turn_player_id"]
+
+    game_state = _load(redis_store, game_id)
+    game_state.current_deal.discard_pile = [
+        Card(id="disc1", rank=Rank.FOUR, suit=Suit.SPADES)
+    ]
+    redis_store.set_state(game_id, game_state)
+
+    sockets[turn_player_id].send_json({"type": "draw_discard", "data": {}})
+    for ws in sockets.values():
+        ws.receive_json()
+
+    hand = _load(redis_store, game_id).current_deal.hands[turn_player_id]
+    sockets[turn_player_id].send_json(
+        {"type": "discard", "data": {"card_id": hand[0].id}}
+    )
+    for ws in sockets.values():
+        ws.receive_json()
+
+    game_state = _load(redis_store, game_id)
+    assert game_state.current_deal.penalties["A"] == -1000
+
+
 def test_concede_penalty_applies_1000_point_penalty(
     started_game: dict, redis_store: RedisGameStore
 ) -> None:
@@ -154,7 +183,8 @@ async def test_full_deal_flow_scores_and_advances_to_next_deal(
         assert isinstance(own_hand, list)
         assert len(own_hand) == 13
         assert state["data"]["melds"] == {"A": [], "B": []}
-        assert state["data"]["turn_player_id"] == turn_player_id
+        # the opening turn rotates clockwise: deal 2 starts at seat 1
+        assert state["data"]["turn_player_id"] == player_ids[1]
 
     async with db_session_factory() as session:
         game_row = await session.get(Game, game_id)

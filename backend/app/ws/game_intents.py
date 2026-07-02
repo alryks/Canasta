@@ -54,6 +54,16 @@ class GameIntentResult:
     deal_completed: bool
     deal_result_message: dict | None
     winner_team_id: str | None
+    # player-facing explanation for an action that changed state in an
+    # unexpected-but-legal way (e.g. below-threshold melds rolled back)
+    notice: str | None = None
+
+
+def _wild_side(data: dict) -> str:
+    side = data.get("wild_side", "low")
+    if side not in ("low", "high"):
+        raise IllegalActionError(f"wild_side must be 'low' or 'high', got {side!r}")
+    return side
 
 
 def _build_action(intent: str, data: dict) -> Action:
@@ -62,10 +72,14 @@ def _build_action(intent: str, data: dict) -> Action:
     if intent == "draw_discard":
         return DrawDiscard()
     if intent == "create_meld":
-        return CreateMeld(card_ids=list(data.get("card_ids", [])))
+        return CreateMeld(
+            card_ids=list(data.get("card_ids", [])), wild_side=_wild_side(data)
+        )
     if intent == "add_to_meld":
         return AddToMeld(
-            meld_id=data.get("meld_id", ""), card_ids=list(data.get("card_ids", []))
+            meld_id=data.get("meld_id", ""),
+            card_ids=list(data.get("card_ids", [])),
+            wild_side=_wild_side(data),
         )
     if intent == "steal_wild":
         return StealWild(
@@ -131,8 +145,11 @@ async def _complete_deal(
         seated = sorted(players, key=lambda p: p.seat)
         player_order = [p.id for p in seated]
         player_team = {p.id: p.team_id for p in seated}
+        # rules.md section 5: the deal rotates clockwise, so deal N is opened
+        # by the player at seat (N-1) % 4 -- deal 1 by seat 0, deal 2 by seat 1...
+        first_player_id = player_order[game.current_deal_number % len(player_order)]
         game_state.current_deal = start_new_deal(
-            player_order, player_team, game_state.scores
+            player_order, player_team, game_state.scores, first_player_id=first_player_id
         )
         game.current_deal_number += 1
 
@@ -170,6 +187,10 @@ async def apply_game_intent(
 
         apply_action(game_state.current_deal, sender_id, action)
 
+        # one-shot notice: pop before persisting so it never reaches Redis
+        notice = game_state.current_deal.pending_notice
+        game_state.current_deal.pending_notice = None
+
         if not game_state.current_deal.deal_over:
             store.set_state(game.id, game_state)
             return GameIntentResult(
@@ -177,6 +198,7 @@ async def apply_game_intent(
                 deal_completed=False,
                 deal_result_message=None,
                 winner_team_id=None,
+                notice=notice,
             )
 
         deal_result_message, winner_team_id = await _complete_deal(

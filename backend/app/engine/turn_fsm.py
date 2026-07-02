@@ -25,6 +25,9 @@ class TurnState:
     must_meld_after_pickup: bool = False
     melds_created_this_turn: int = 0
     pending_penalty: bool = False
+    # ids of melds created this turn -- the engine rolls exactly these back
+    # into the hand when an unopened team's discard falls below the threshold
+    created_meld_ids: tuple[str, ...] = ()
 
 
 def start_turn(player_id: str) -> TurnState:
@@ -45,13 +48,20 @@ def draw_from_discard(turn_state: TurnState, top_of_discard: Card) -> TurnState:
     return replace(turn_state, phase=TurnPhase.ACT, must_meld_after_pickup=True)
 
 
-def record_meld_created(turn_state: TurnState) -> TurnState:
+def record_meld_created(turn_state: TurnState, meld_id: str | None = None) -> TurnState:
     if turn_state.phase != TurnPhase.ACT:
         raise IllegalActionError(
             f"cannot create a meld during phase {turn_state.phase}"
         )
+    created = (
+        (*turn_state.created_meld_ids, meld_id)
+        if meld_id is not None
+        else turn_state.created_meld_ids
+    )
     return replace(
-        turn_state, melds_created_this_turn=turn_state.melds_created_this_turn + 1
+        turn_state,
+        melds_created_this_turn=turn_state.melds_created_this_turn + 1,
+        created_meld_ids=created,
     )
 
 
@@ -64,12 +74,6 @@ def concede_penalty(turn_state: TurnState) -> TurnState:
     return replace(turn_state, pending_penalty=True)
 
 
-def _pickup_requirement_met(turn_state: TurnState) -> bool:
-    return (
-        not turn_state.must_meld_after_pickup or turn_state.melds_created_this_turn > 0
-    )
-
-
 def can_discard(
     turn_state: TurnState, *, team_opened: bool, threshold_met: bool
 ) -> bool:
@@ -77,7 +81,34 @@ def can_discard(
         return False
     if turn_state.pending_penalty:
         return True
-    return _pickup_requirement_met(turn_state) and (team_opened or threshold_met)
+    if not turn_state.must_meld_after_pickup:
+        # rules.md section 6: after drawing from the deck melding is optional,
+        # so a plain discard is always allowed regardless of opening status.
+        return True
+    # Took the whole discard pile (section 7): must have laid at least one new
+    # meld this turn, and an unopened team must also cover its opening threshold.
+    return turn_state.melds_created_this_turn > 0 and (team_opened or threshold_met)
+
+
+def discard_incurring_penalty(
+    turn_state: TurnState,
+    *,
+    team_opened: bool,
+    threshold_met: bool,
+) -> bool:
+    """True when a discard should auto-apply the -1000 penalty (rules section 7).
+
+    Only the took-the-pile-without-melding case remains here: below-threshold
+    melds never reach a discard anymore -- the engine rolls them back to the
+    hand and rejects the discard instead (rules.md section 10).
+    """
+    if turn_state.pending_penalty:
+        return False
+    if turn_state.must_meld_after_pickup and not can_discard(
+        turn_state, team_opened=team_opened, threshold_met=threshold_met
+    ):
+        return True
+    return False
 
 
 def discard(
@@ -94,7 +125,8 @@ def discard(
         turn_state, team_opened=team_opened, threshold_met=threshold_met
     ):
         raise IllegalActionError(
-            "discard blocked: pickup meld requirement or opening threshold not met"
+            "discard blocked: after taking the discard pile you must lay a new meld"
+            " (and cover the opening threshold if your team is not opened)"
         )
     if hand_empty_after and team_has_closed_canasta:
         return replace(turn_state, phase=TurnPhase.DEAL_END, pending_penalty=False)

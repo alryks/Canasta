@@ -1,12 +1,13 @@
 from app.engine.actions import (
     AddToMeld,
-    ConcedePenalty,
     CreateMeld,
     Discard,
     DrawDeck,
+    DrawDiscard,
     StealWild,
 )
 from app.engine.engine import (
+    OPENING_THRESHOLD_NOTICE,
     combined_team_hand,
     final_deal_scores,
     force_skip_turn,
@@ -18,6 +19,7 @@ from app.engine.scoring import ExitType
 from app.engine.turn_fsm import TurnPhase
 from app.engine.engine import DealState, apply_action
 from app.engine.turn_fsm import start_turn
+from app.engine.rules import build_new_meld
 
 import pytest
 
@@ -38,6 +40,20 @@ def test_start_new_deal_deals_13_cards_each_and_preserves_108_cards() -> None:
     assert deal.thresholds == {"A": 30, "B": 30}
     assert deal.turn_state.current_player_id == "p1"
     assert deal.turn_state.phase == TurnPhase.DRAW
+
+
+def test_start_new_deal_rotates_first_player() -> None:
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    deal = start_new_deal(
+        player_order, player_team, {"A": 0, "B": 0}, first_player_id="p2"
+    )
+    assert deal.turn_state.current_player_id == "p2"
+
+    with pytest.raises(ValueError):
+        start_new_deal(
+            player_order, player_team, {"A": 0, "B": 0}, first_player_id="ghost"
+        )
 
 
 def _build_full_deal_scenario() -> DealState:
@@ -114,14 +130,14 @@ def test_full_deal_from_deal_to_exit() -> None:
     assert deal.turn_state.current_player_id == "p2"
     assert deal.hands["p1"] == [cards["black3_p1"]]
 
-    # --- Turn 2: p2's team isn't opened -> concede penalty, then discard ---
-    apply_action(deal, "p2", DrawDeck())
-    with pytest.raises(IllegalActionError):
-        apply_action(deal, "p2", Discard(card_id="nh1"))
+    # --- Turn 2: p2 takes the discard pile but cannot lay the required new
+    # meld (rules.md section 7) -> the discard itself auto-applies -1000 ---
+    apply_action(deal, "p2", DrawDiscard())
+    assert deal.discard_pile == []
 
-    apply_action(deal, "p2", ConcedePenalty())
     apply_action(deal, "p2", Discard(card_id="nh1"))
     assert deal.penalties["B"] == -1000
+    assert deal.hands["p2"] == [cards["filler1"]]
     assert deal.turn_state.current_player_id == "p3"
 
     # --- Turn 3: p3 closes the canasta to 7 aces, then discards the last card ---
@@ -133,8 +149,8 @@ def test_full_deal_from_deal_to_exit() -> None:
     assert deal.teams["A"].melds[0].is_closed
     assert deal.teams["A"].melds[0].canasta_type is not None
 
-    assert not deal.deal_over  # filler3b still in hand
-    apply_action(deal, "p3", Discard(card_id="filler3b"))
+    assert not deal.deal_over  # the drawn filler card is still in hand
+    apply_action(deal, "p3", Discard(card_id="filler2b"))
 
     assert deal.deal_over
     assert deal.exit_team_id == "A"
@@ -151,7 +167,7 @@ def test_full_deal_from_deal_to_exit() -> None:
     assert scores["A"].exit_bonus == 200  # dirty exit
     assert scores["A"].total == 70 + 500 - 100 + 200
 
-    assert scores["B"].hand_penalty == -15  # nine (5) + ten (10) left on hand
+    assert scores["B"].hand_penalty == -15  # eight (5) + ten (10) left on hand
     assert scores["B"].total == -15 - 1000  # plus the concede_penalty
 
 
@@ -203,6 +219,164 @@ def test_clean_exit_auto_triggers_when_meld_action_empties_hand() -> None:
     assert deal.exit_type == ExitType.CLEAN
     assert deal.exit_team_id == "A"
     assert deal.turn_state.phase == TurnPhase.DEAL_END
+
+
+def test_dirty_exit_allows_only_threes_left_in_hand() -> None:
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    closed_meld = build_new_meld(
+        "m1", "A", [c(Rank.SEVEN, Suit.SPADES, f"s{i}") for i in range(7)]
+    )
+    black_three = c(Rank.THREE, Suit.SPADES, "black3")
+    discard_card = c(Rank.NINE, Suit.HEARTS, "discard")
+
+    deal = DealState(
+        deck=[discard_card],
+        discard_pile=[],
+        teams={
+            "A": TeamTable(team_id="A", is_opened=True, melds=[closed_meld]),
+            "B": TeamTable(team_id="B"),
+        },
+        hands={"p1": [black_three], "p2": [], "p3": [], "p4": []},
+        thresholds={"A": 30, "B": 30},
+        player_order=player_order,
+        player_team=player_team,
+        turn_state=start_turn("p1"),
+    )
+
+    apply_action(deal, "p1", DrawDeck())
+    apply_action(deal, "p1", Discard(card_id="discard"))
+
+    assert deal.deal_over
+    assert deal.exit_team_id == "A"
+    assert deal.exit_type == ExitType.DIRTY
+    assert deal.hands["p1"] == [black_three]
+
+
+def test_empty_deck_draw_ends_deal_without_exit_bonus() -> None:
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    deal = DealState(
+        deck=[],
+        discard_pile=[],
+        teams={"A": TeamTable(team_id="A"), "B": TeamTable(team_id="B")},
+        hands={"p1": [], "p2": [], "p3": [], "p4": []},
+        thresholds={"A": 30, "B": 30},
+        player_order=player_order,
+        player_team=player_team,
+        turn_state=start_turn("p1"),
+    )
+
+    apply_action(deal, "p1", DrawDeck())
+
+    assert deal.deal_over
+    assert deal.exit_team_id is None
+    assert deal.exit_type is None
+    assert deal.turn_state.phase == TurnPhase.DEAL_END
+    assert all(score.exit_bonus == 0 for score in final_deal_scores(deal).values())
+
+
+def test_discard_below_threshold_rolls_melds_back_and_rejects_the_discard() -> None:
+    """rules.md section 10: the opening must be covered within one turn. A
+    discard that would end the turn below the threshold is rejected -- this
+    turn's melds return to the hand and the player redoes the turn."""
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    low_meld = [
+        c(Rank.FOUR, Suit.CLUBS, "c4"),
+        c(Rank.FOUR, Suit.SPADES, "s4"),
+        c(Rank.FOUR, Suit.HEARTS, "h4"),
+    ]
+    discard_card = c(Rank.NINE, Suit.HEARTS, "discard")
+    deal = DealState(
+        deck=[discard_card],
+        discard_pile=[],
+        teams={"A": TeamTable(team_id="A"), "B": TeamTable(team_id="B")},
+        hands={"p1": list(low_meld), "p2": [], "p3": [], "p4": []},
+        thresholds={"A": 30, "B": 30},
+        player_order=player_order,
+        player_team=player_team,
+        turn_state=start_turn("p1"),
+    )
+
+    apply_action(deal, "p1", DrawDeck())
+    apply_action(deal, "p1", CreateMeld(card_ids=["c4", "s4", "h4"]))
+
+    assert deal.teams["A"].turn_accumulator == 15
+    assert deal.teams["A"].is_opened is False
+    apply_action(deal, "p1", Discard(card_id="discard"))
+
+    # discard rejected: melds are back in hand, no penalty, still p1's turn
+    assert deal.pending_notice == OPENING_THRESHOLD_NOTICE
+    assert deal.penalties == {}
+    assert deal.teams["A"].melds == []
+    assert deal.teams["A"].turn_accumulator == 0
+    assert deal.turn_state.current_player_id == "p1"
+    assert deal.turn_state.phase == TurnPhase.ACT
+    assert deal.turn_state.melds_created_this_turn == 0
+    assert {card.id for card in deal.hands["p1"]} == {"c4", "s4", "h4", "discard"}
+    assert deal.discard_pile == []
+
+    # the retried plain discard (no melds this time) ends the turn normally
+    apply_action(deal, "p1", Discard(card_id="discard"))
+    assert deal.turn_state.current_player_id == "p2"
+    assert deal.penalties == {}
+
+
+def test_discard_after_pickup_without_meld_applies_penalty() -> None:
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    pickup_cards = [c(Rank.FIVE, Suit.CLUBS, f"p{i}") for i in range(5)]
+    deal = DealState(
+        deck=[],
+        discard_pile=pickup_cards,
+        teams={"A": TeamTable(team_id="A"), "B": TeamTable(team_id="B")},
+        hands={"p1": [], "p2": [], "p3": [], "p4": []},
+        thresholds={"A": 30, "B": 30},
+        player_order=player_order,
+        player_team=player_team,
+        turn_state=start_turn("p1"),
+    )
+
+    apply_action(deal, "p1", DrawDiscard())
+    assert deal.turn_state.must_meld_after_pickup is True
+    card_id = deal.hands["p1"][0].id
+    apply_action(deal, "p1", Discard(card_id=card_id))
+
+    assert deal.penalties["A"] == -1000
+    assert deal.turn_state.current_player_id == "p2"
+
+
+def test_canasta_bonus_counts_toward_opening_threshold() -> None:
+    player_order = ["p1", "p2", "p3", "p4"]
+    player_team = {"p1": "A", "p2": "B", "p3": "A", "p4": "B"}
+    seven_suits = [
+        Suit.CLUBS,
+        Suit.SPADES,
+        Suit.HEARTS,
+        Suit.DIAMONDS,
+        Suit.CLUBS,
+        Suit.SPADES,
+        Suit.HEARTS,
+    ]
+    sevens = [c(Rank.SEVEN, suit, f"seven{i}") for i, suit in enumerate(seven_suits)]
+    discard_card = c(Rank.NINE, Suit.HEARTS, "discard")
+    deal = DealState(
+        deck=[discard_card],
+        discard_pile=[],
+        teams={"A": TeamTable(team_id="A"), "B": TeamTable(team_id="B")},
+        hands={"p1": list(sevens), "p2": [], "p3": [], "p4": []},
+        thresholds={"A": 150, "B": 30},
+        player_order=player_order,
+        player_team=player_team,
+        turn_state=start_turn("p1"),
+    )
+
+    apply_action(deal, "p1", DrawDeck())
+    apply_action(deal, "p1", CreateMeld(card_ids=[card.id for card in sevens]))
+
+    assert deal.teams["A"].turn_accumulator == 35 + 500
+    assert deal.teams["A"].is_opened is True
 
 
 def test_steal_wild_via_apply_action_moves_card_between_hands() -> None:

@@ -18,12 +18,16 @@ class DrawDiscard:
 @dataclass(frozen=True)
 class CreateMeld:
     card_ids: list[str]
+    # Which end of a sequence the loose wild cards extend: "low" (toward 4)
+    # or "high" (toward the Ace). Ignored for sets and wild canastas.
+    wild_side: str = "low"
 
 
 @dataclass(frozen=True)
 class AddToMeld:
     meld_id: str
     card_ids: list[str]
+    wild_side: str = "low"
 
 
 @dataclass(frozen=True)

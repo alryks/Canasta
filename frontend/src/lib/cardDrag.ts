@@ -48,6 +48,14 @@ export function makeCardDragSource(
         const { hoveredZone } = useDragStore.getState()
         useDragStore.getState().endDrag()
         if (hoveredZone) onDrop(hoveredZone, cardId, origin)
+        const suppressDragClick = (clickEvent: MouseEvent) => {
+          clickEvent.preventDefault()
+          clickEvent.stopPropagation()
+        }
+        window.addEventListener('click', suppressDragClick, { capture: true, once: true })
+        window.setTimeout(() => {
+          window.removeEventListener('click', suppressDragClick, { capture: true })
+        }, 0)
       }
     }
 

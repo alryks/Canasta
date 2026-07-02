@@ -121,11 +121,14 @@ async def _handle_assign_seat(session, game: Game, sender: Player, data: dict) -
             select(Player).where(Player.game_id == game.id, Player.seat == seat)
         )
     ).all()
-    if any(p.id != target.id for p in others):
-        raise LobbyActionError(f"seat {seat} is already taken")
+    displaced = next((p for p in others if p.id != target.id), None)
+    previous_seat = target.seat
 
     target.seat = seat
     target.team_id = _team_for_seat(seat)
+    if displaced is not None:
+        displaced.seat = previous_seat
+        displaced.team_id = _team_for_seat(previous_seat) if previous_seat in SEATS else None
     await session.commit()
     await manager.broadcast(game.id, await _lobby_state_message(session, game))
 
@@ -294,6 +297,16 @@ async def _handle_game_intent(
     session, game: Game, sender_id: str, intent: str, data: dict
 ) -> None:
     result = await apply_game_intent(store, session, game, sender_id, intent, data)
+
+    if result.notice is not None:
+        # the action was accepted but did something the player must be told
+        # about (below-threshold melds returned to hand) -- reuse the
+        # action_error channel so the client shows its usual toast
+        await manager.send_to(
+            game.id,
+            sender_id,
+            {"type": "action_error", "data": {"reason": result.notice}},
+        )
 
     if not result.deal_completed:
         await manager.broadcast_personalized(

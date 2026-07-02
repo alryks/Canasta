@@ -62,7 +62,7 @@ describe('LobbySettingsPanel', () => {
       />,
     )
 
-    await userEvent.selectOptions(screen.getByLabelText('Видимость сброса'), 'FULL')
+    await userEvent.click(screen.getByRole('button', { name: 'Вся стопка' }))
 
     expect(onChange).toHaveBeenCalledWith({ discard_visibility: 'FULL' })
   })

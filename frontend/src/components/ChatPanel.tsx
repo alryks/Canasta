@@ -10,10 +10,6 @@ interface ChatPanelProps {
   onOpen: () => void
 }
 
-// Collapsible side panel, reused as-is between GamePage and (eventually)
-// LobbyPage's LobbyChat -- kept prop-driven like the rest of this codebase's
-// components rather than reading useChatStore itself, so either page can
-// wire it up without extra indirection.
 export function ChatPanel({
   messages,
   unreadCount,
@@ -40,35 +36,50 @@ export function ChatPanel({
   }
 
   return (
-    <div className="side-panel">
+    <div className="table-tool">
       {open && (
-        <div className="side-panel-body">
-          <ul aria-label="chat-messages" className="side-panel-messages">
-            {messages.map((message, i) => (
-              <li key={i}>
-                {playerNames[message.from] ?? message.from}: {message.text}
-              </li>
-            ))}
-          </ul>
-          <form onSubmit={handleSubmit} className="side-panel-form">
-            <label htmlFor="chat-input" className="visually-hidden">
-              Сообщение
-            </label>
-            <input
-              id="chat-input"
-              className="input"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Написать в чат…"
-            />
-            <button type="submit" className="btn btn-icon">
-              Отправить
-            </button>
-          </form>
+        <div className="modal-overlay" role="dialog" aria-label="chat-modal">
+          <div className="panel modal-panel chat-modal">
+            <div className="modal-header">
+              <h3>Чат</h3>
+              <button type="button" className="modal-close-btn" onClick={toggle} aria-label="Закрыть">
+                ×
+              </button>
+            </div>
+            <ul aria-label="chat-messages" className="modal-messages">
+              {messages.map((message, i) => (
+                <li key={i}>
+                  <span className="message-author">{playerNames[message.from] ?? message.from}</span>
+                  <span className="message-text">{message.text}</span>
+                </li>
+              ))}
+            </ul>
+            <form onSubmit={handleSubmit} className="modal-message-form">
+              <label htmlFor="chat-input" className="visually-hidden">
+                Сообщение
+              </label>
+              <input
+                id="chat-input"
+                className="input"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Сообщение"
+              />
+              <button type="submit" className="btn btn-primary">
+                Отправить
+              </button>
+            </form>
+          </div>
         </div>
       )}
-      <button type="button" className="btn btn-primary" aria-expanded={open} onClick={toggle}>
-        Чат{unreadCount > 0 ? ` (${unreadCount})` : ''}
+      <button
+        type="button"
+        className={`btn btn-primary table-tool-btn${unreadCount > 0 ? ' has-unread' : ''}`}
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        Чат
+        {unreadCount > 0 && <span className="unread-badge">{unreadCount}</span>}
       </button>
     </div>
   )

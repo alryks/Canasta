@@ -1,5 +1,5 @@
 import type { PointerEventHandler } from 'react'
-import { isRedSuit, suitSymbol } from '../lib/cards'
+import { isRedSuit, isWildRank, suitSymbol } from '../lib/cards'
 import type { Card } from '../lib/protocol'
 
 interface PlayingCardProps {
@@ -19,9 +19,10 @@ interface PlayingCardProps {
   dragging?: boolean
 }
 
-// Casino-style card face: rank+suit corner indices (mirrored bottom-right),
-// large center suit glyph. Rendered purely with CSS/text -- no image assets
-// (plan section 8/17 only fixes the palette, not a specific art asset).
+// Casino-style card face rendered purely with CSS/text: rank+suit corner
+// index top-left, mirrored bottom-right via CSS attr(data-label), large
+// center suit glyph. Wild cards (jokers and twos) get a gold inner ring so
+// they read as wild at a glance.
 export function PlayingCard({
   card,
   faceDown = false,
@@ -38,13 +39,14 @@ export function PlayingCard({
   dropZone,
   dragging = false,
 }: PlayingCardProps) {
+  const isWild = wild || (card !== undefined && isWildRank(card.rank))
   const classes = [
     'playing-card',
     empty ? 'is-empty-slot' : faceDown || !card ? 'is-back' : 'is-face',
     !faceDown && card && isRedSuit(card.suit) ? 'is-red' : '',
     size === 'small' ? 'is-small' : '',
     selected ? 'is-selected' : '',
-    wild ? 'is-wild' : '',
+    !faceDown && !empty && isWild ? 'is-wild' : '',
     onClick ? 'is-selectable' : '',
     dragging ? 'is-dragging-source' : '',
     className,
@@ -53,16 +55,28 @@ export function PlayingCard({
     .join(' ')
 
   const isJoker = card?.rank === 'JOKER'
+  const rankText = card ? (isJoker ? '★' : card.rank) : ''
+  const suitText = card && !isJoker ? suitSymbol(card.suit) : ''
+  const label = card ? (isJoker ? '★' : `${card.rank}${suitText}`) : ''
   const content = empty ? (
     <span className="card-center">—</span>
   ) : !faceDown && card ? (
     <>
-      <span className="card-index">{isJoker ? '★' : `${card.rank}${suitSymbol(card.suit)}`}</span>
+      <span className="card-index">{label}</span>
       <span className={`card-center${isJoker ? ' is-joker' : ''}`}>
-        {isJoker ? 'JOKER' : suitSymbol(card.suit)}
+        {isJoker ? (
+          <span className="card-center-joker">JOKER</span>
+        ) : (
+          <>
+            <span className="card-center-rank">{rankText}</span>
+            <span className="card-center-suit">{suitText}</span>
+          </>
+        )}
       </span>
     </>
   ) : null
+
+  const dataLabel = !faceDown && !empty && card ? label : undefined
 
   if (onClick) {
     return (
@@ -76,7 +90,9 @@ export function PlayingCard({
         aria-label={ariaLabel}
         data-drop-zone={dropZone}
       >
-        <span className={classes}>{content}</span>
+        <span className={classes} data-label={dataLabel}>
+          {content}
+        </span>
       </button>
     )
   }
@@ -84,6 +100,7 @@ export function PlayingCard({
   return (
     <span
       className={classes}
+      data-label={dataLabel}
       aria-label={ariaLabel}
       onPointerDown={onPointerDown}
       data-drop-zone={dropZone}

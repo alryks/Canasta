@@ -51,10 +51,18 @@ export interface GameStateData {
   melds: Record<string, Meld[]>
   deck_count: number
   discard_pile: Card[]
+  discard_count: number
   scores: Record<string, number>
   thresholds: Record<string, number>
   turn_player_id: string
   turn_phase: string
+  // FR-22 turn-progress flags: whether the current player took the discard
+  // pile (and so owes a new meld), how many melds they laid this turn, and
+  // whether they already accepted the -1000 "не могу выложить" penalty.
+  must_meld_after_pickup: boolean
+  melds_created_this_turn: number
+  pending_penalty: boolean
+  team_opened: Record<string, boolean>
   turn_accumulator: Record<string, number>
 }
 

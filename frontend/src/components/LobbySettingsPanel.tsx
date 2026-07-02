@@ -11,6 +11,10 @@ export function LobbySettingsPanel({
   isHost,
   onChange,
 }: LobbySettingsPanelProps) {
+  const setDiscardVisibility = (value: string) => {
+    if (value !== discardVisibility) onChange({ discard_visibility: value })
+  }
+
   if (!isHost) {
     return (
       <p className="status-line">
@@ -36,16 +40,29 @@ export function LobbySettingsPanel({
       </div>
 
       <div className="field">
-        <label htmlFor="discard-visibility">Видимость сброса</label>
-        <select
-          id="discard-visibility"
-          className="input"
-          value={discardVisibility}
-          onChange={(event) => onChange({ discard_visibility: event.target.value })}
+        <span className="field-label">Видимость сброса</span>
+        <div
+          className="setting-toggle"
+          role="radiogroup"
+          aria-label="Видимость сброса"
         >
-          <option value="TOP_ONLY">Только верхняя карта</option>
-          <option value="FULL">Вся стопка</option>
-        </select>
+          <button
+            type="button"
+            className={`setting-toggle-option${discardVisibility === 'TOP_ONLY' ? ' is-active' : ''}`}
+            aria-pressed={discardVisibility === 'TOP_ONLY'}
+            onClick={() => setDiscardVisibility('TOP_ONLY')}
+          >
+            Верхняя карта
+          </button>
+          <button
+            type="button"
+            className={`setting-toggle-option${discardVisibility === 'FULL' ? ' is-active' : ''}`}
+            aria-pressed={discardVisibility === 'FULL'}
+            onClick={() => setDiscardVisibility('FULL')}
+          >
+            Вся стопка
+          </button>
+        </div>
       </div>
     </div>
   )

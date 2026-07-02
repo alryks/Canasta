@@ -109,6 +109,26 @@ def test_sequence_rejects_gap_too_large_to_bridge() -> None:
         build_new_meld("m5", "teamA", cards)
 
 
+def test_sequence_loose_wild_defaults_to_low_side() -> None:
+    cards = [nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES), two(Suit.SPADES)]
+    meld = build_new_meld("m6", "teamA", cards)
+    assert meld.rank_or_suit_anchor == f"{Suit.SPADES.value}:{Rank.FOUR.value}"
+    assert meld.slots[0].is_wild
+
+
+def test_sequence_loose_wild_high_side() -> None:
+    cards = [nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES), two(Suit.SPADES)]
+    meld = build_new_meld("m6", "teamA", cards, wild_side="high")
+    assert meld.rank_or_suit_anchor == f"{Suit.SPADES.value}:{Rank.FIVE.value}"
+    assert meld.slots[2].is_wild
+
+
+def test_sequence_wild_side_rejects_unknown_value() -> None:
+    cards = [nat(Rank.FIVE, Suit.SPADES), nat(Rank.SIX, Suit.SPADES), two(Suit.SPADES)]
+    with pytest.raises(IllegalActionError):
+        build_new_meld("m6", "teamA", cards, wild_side="sideways")
+
+
 # --- build_new_meld: WILD_CANASTA ---
 
 
@@ -186,6 +206,33 @@ def test_add_to_meld_rejects_wrong_suit_for_sequence() -> None:
     meld = build_new_meld("m12", "teamA", cards)
     with pytest.raises(IllegalActionError):
         add_to_meld(meld, "teamA", [nat(Rank.SEVEN, Suit.HEARTS)])
+
+
+def test_add_wild_to_sequence_on_chosen_side() -> None:
+    cards = [
+        nat(Rank.FIVE, Suit.SPADES),
+        nat(Rank.SIX, Suit.SPADES),
+        nat(Rank.SEVEN, Suit.SPADES),
+    ]
+    meld = build_new_meld("m12b", "teamA", cards)
+    updated = add_to_meld(meld, "teamA", [joker()], wild_side="high")
+    assert updated.rank_or_suit_anchor == f"{Suit.SPADES.value}:{Rank.FIVE.value}"
+    assert updated.slots[3].is_wild
+
+
+def test_add_wild_keeps_existing_wild_pinned_to_its_rank() -> None:
+    cards = [
+        nat(Rank.FIVE, Suit.SPADES),
+        nat(Rank.SIX, Suit.SPADES),
+        nat(Rank.SEVEN, Suit.SPADES),
+    ]
+    meld = build_new_meld("m12c", "teamA", cards)
+    meld = add_to_meld(meld, "teamA", [joker("hi")], wild_side="high")
+    # the first wild sits at rank 8; adding a second one toward 4 must not move it
+    updated = add_to_meld(meld, "teamA", [two(Suit.HEARTS, "lo")], wild_side="low")
+    assert updated.rank_or_suit_anchor == f"{Suit.SPADES.value}:{Rank.FOUR.value}"
+    assert updated.slots[0].id == f"2{Suit.HEARTS}lo"
+    assert updated.slots[4].id == "Jhi"
 
 
 # --- steal_wild ---

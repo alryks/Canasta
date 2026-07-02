@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GameStateData } from '../lib/protocol'
@@ -7,6 +7,7 @@ import { useConnectionStore } from '../stores/connectionStore'
 import { useDragStore } from '../stores/dragStore'
 import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameStore } from '../stores/gameStore'
+import { useHandOrderStore } from '../stores/handOrderStore'
 import { useLobbyStore } from '../stores/lobbyStore'
 import { GamePage } from './GamePage'
 
@@ -28,6 +29,7 @@ function baseGameState(overrides: Partial<GameStateData> = {}): GameStateData {
       p1: [
         { id: 'c1', rank: '7', suit: 'HEARTS' },
         { id: 'c2', rank: '7', suit: 'CLUBS' },
+        { id: 'c3', rank: '7', suit: 'SPADES' },
       ],
       p2: 10,
       p3: 11,
@@ -51,10 +53,15 @@ function baseGameState(overrides: Partial<GameStateData> = {}): GameStateData {
     },
     deck_count: 40,
     discard_pile: [],
+    discard_count: 0,
     scores: { A: 0, B: 0 },
     thresholds: { A: 50, B: 50 },
     turn_player_id: 'p1',
     turn_phase: 'ACT',
+    must_meld_after_pickup: false,
+    melds_created_this_turn: 0,
+    pending_penalty: false,
+    team_opened: { A: false, B: false },
     turn_accumulator: { A: 0, B: 0 },
     ...overrides,
   }
@@ -80,6 +87,7 @@ describe('GamePage', () => {
 
   beforeEach(() => {
     useGameStore.getState().reset()
+    useHandOrderStore.getState().reset()
     useChatStore.getState().reset()
     useEventLogStore.getState().reset()
     useDragStore.getState().endDrag()
@@ -104,15 +112,15 @@ describe('GamePage', () => {
 
     expect(screen.getByText('7♥')).toBeInTheDocument()
     expect(screen.getByText('7♣')).toBeInTheDocument()
-    expect(screen.getByText(/Bob: 10 карт/)).toBeInTheDocument()
-    expect(screen.getByText(/Колода: 40 карт/)).toBeInTheDocument()
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText(/Колода · 40/)).toBeInTheDocument()
   })
 
   it('sends draw_deck when drawing during the DRAW phase on my turn', async () => {
     useGameStore.getState().applyGameState(baseGameState({ turn_phase: 'DRAW' }))
     render(<GamePage />)
 
-    await userEvent.click(screen.getByText('Взять из колоды'))
+    await userEvent.click(screen.getByLabelText('Взять из колоды'))
     expect(send).toHaveBeenCalledWith('draw_deck', {})
   })
 
@@ -122,34 +130,63 @@ describe('GamePage', () => {
 
     await userEvent.click(screen.getByText('7♥'))
     await userEvent.click(screen.getByText('7♣'))
-    await userEvent.click(screen.getByText('Выложить новый мелд'))
+    await userEvent.click(screen.getByText('7♠'))
+    await userEvent.click(screen.getByRole('button', { name: /Новая комбинация/ }))
 
-    expect(send).toHaveBeenCalledWith('create_meld', { card_ids: ['c1', 'c2'] })
+    expect(send).toHaveBeenCalledWith('create_meld', {
+      card_ids: ['c1', 'c2', 'c3'],
+      wild_side: 'low',
+    })
     expect(screen.getByRole('button', { name: '7♥' })).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('only enables discard once exactly one card is selected', async () => {
+  it('shows exact wild placement choices when creating an ambiguous sequence', async () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        hands: {
+          p1: [
+            { id: 's7', rank: '7', suit: 'SPADES' },
+            { id: 's8', rank: '8', suit: 'SPADES' },
+            { id: 'joker', rank: 'JOKER', suit: null },
+          ],
+          p2: 10,
+          p3: 11,
+          p4: 11,
+        },
+      }),
+    )
+    render(<GamePage />)
+
+    const hand = within(screen.getByLabelText('hand'))
+    await userEvent.click(hand.getByRole('button', { name: '7♠' }))
+    await userEvent.click(hand.getByRole('button', { name: '8♠' }))
+    await userEvent.click(hand.getByRole('button', { name: 'JOKER' }))
+
+    expect(screen.getByText('6♠')).toBeInTheDocument()
+    expect(screen.getByText('9♠')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '9♠' }))
+    await userEvent.click(screen.getByRole('button', { name: /Новая комбинация/ }))
+
+    expect(send).toHaveBeenCalledWith('create_meld', {
+      card_ids: ['s7', 's8', 'joker'],
+      wild_side: 'high',
+    })
+  })
+
+  it('does not show a discard button', () => {
     useGameStore.getState().applyGameState(baseGameState())
     render(<GamePage />)
 
-    const discardButton = screen.getByText('Сбросить')
-    expect(discardButton).toBeDisabled()
-
-    await userEvent.click(screen.getByText('7♥'))
-    expect(discardButton).toBeEnabled()
-
-    await userEvent.click(discardButton)
-    expect(send).toHaveBeenCalledWith('discard', { card_id: 'c1' })
+    expect(screen.queryByText('Сбросить')).not.toBeInTheDocument()
   })
 
   it('steals a wild card from an opponent meld using a selected hand card', async () => {
     useGameStore.getState().applyGameState(baseGameState())
     render(<GamePage />)
 
-    await userEvent.click(screen.getByText(/SET 8/))
-    await userEvent.click(screen.getByText('JOKER'))
+    await userEvent.click(screen.getByRole('button', { name: 'JOKER' }))
     await userEvent.click(screen.getByText('7♥'))
-    await userEvent.click(screen.getByText('Украсть козырь'))
+    await userEvent.click(screen.getByText('Заменить козырь'))
 
     expect(send).toHaveBeenCalledWith('steal_wild', {
       meld_id: 'm1',
@@ -189,14 +226,17 @@ describe('GamePage', () => {
     render(<GamePage />)
 
     dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="meld:m2"]')
-    expect(send).toHaveBeenCalledWith('add_to_meld', { meld_id: 'm2', card_ids: ['c1'] })
+    expect(send).toHaveBeenCalledWith('add_to_meld', {
+      meld_id: 'm2',
+      card_ids: ['c1'],
+      wild_side: 'low',
+    })
   })
 
-  it('steals a wild card by dragging a hand card onto it', async () => {
+  it('steals a wild card by dragging a hand card onto it', () => {
     useGameStore.getState().applyGameState(baseGameState())
     render(<GamePage />)
 
-    await userEvent.click(screen.getByText(/SET 8/))
     dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="wild:m1:w1"]')
 
     expect(send).toHaveBeenCalledWith('steal_wild', {
@@ -211,6 +251,7 @@ describe('GamePage', () => {
       baseGameState({
         turn_phase: 'DRAW',
         discard_pile: [{ id: 'd1', rank: '9', suit: 'CLUBS' }],
+        discard_count: 1,
       }),
     )
     render(<GamePage />)
@@ -219,24 +260,71 @@ describe('GamePage', () => {
     expect(send).toHaveBeenCalledWith('draw_discard', {})
   })
 
-  it("shows the threshold indicator and concede button while the viewer's team is not opened", () => {
+  it('reorders a card when dropped onto another hand slot', () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    render(<GamePage />)
+
+    act(() => {
+      dragCardTo(screen.getByRole('button', { name: '7♣' }), '[data-drop-zone="handslot:c1"]')
+    })
+
+    expect(send).not.toHaveBeenCalled()
+    const hand = screen.getByLabelText('hand')
+    const labels = Array.from(hand.querySelectorAll('button')).map((b) =>
+      b.getAttribute('aria-label'),
+    )
+    expect(labels).toEqual(['7♣', '7♥', '7♠'])
+  })
+
+  it("shows the threshold indicator while the viewer's team is not opened", () => {
     useGameStore
       .getState()
       .applyGameState(baseGameState({ turn_accumulator: { A: 15, B: 0 } }))
     render(<GamePage />)
 
     expect(screen.getByLabelText('threshold-A')).toHaveTextContent('15/50')
-    expect(screen.getByText('Не могу выложить')).toBeInTheDocument()
   })
 
-  it("hides the threshold indicator and concede button once the viewer's team is opened", () => {
-    useGameStore
-      .getState()
-      .applyGameState(baseGameState({ turn_accumulator: { A: 50, B: 0 } }))
+  it("hides the threshold indicator once the viewer's team is opened", () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        turn_accumulator: { A: 50, B: 0 },
+        team_opened: { A: true, B: false },
+      }),
+    )
     render(<GamePage />)
 
     expect(screen.queryByLabelText('threshold-A')).not.toBeInTheDocument()
-    expect(screen.queryByText('Не могу выложить')).not.toBeInTheDocument()
+  })
+
+  it('allows discard via drag even after taking the pile without a new meld', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        must_meld_after_pickup: true,
+        melds_created_this_turn: 0,
+      }),
+    )
+    render(<GamePage />)
+
+    expect(screen.queryByText(/Штраф −1000/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Нужна новая комбинация/)).not.toBeInTheDocument()
+    dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="discard"]')
+    expect(send).toHaveBeenCalledWith('discard', { card_id: 'c1' })
+  })
+
+  it('allows discard via drag once the pickup meld requirement is satisfied', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        must_meld_after_pickup: true,
+        melds_created_this_turn: 1,
+        team_opened: { A: true, B: false },
+      }),
+    )
+    render(<GamePage />)
+
+    expect(screen.queryByText(/Штраф −1000/)).not.toBeInTheDocument()
+    dragCardTo(screen.getByRole('button', { name: '7♥' }), '[data-drop-zone="discard"]')
+    expect(send).toHaveBeenCalledWith('discard', { card_id: 'c1' })
   })
 
   it('shows the winner once the game is over and hides interactive controls', () => {
@@ -246,7 +334,7 @@ describe('GamePage', () => {
 
     expect(screen.getByText(/Игра окончена/)).toBeInTheDocument()
     expect(screen.getByText(/Победила команда A/)).toBeInTheDocument()
-    expect(screen.queryByLabelText('actions')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Новая комбинация/ })).not.toBeInTheDocument()
   })
 
   it('prefers the final deal result scores over the possibly stale game_state scores', () => {
@@ -302,7 +390,7 @@ describe('GamePage', () => {
     useEventLogStore.getState().addEntry('Bob подключился')
     render(<GamePage />)
 
-    await userEvent.click(screen.getByText('Лента событий (1)'))
+    await userEvent.click(screen.getByRole('button', { name: /События 1/ }))
     expect(screen.getByText('Bob подключился')).toBeInTheDocument()
 
     await userEvent.click(screen.getByText('Чат'))

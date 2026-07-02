@@ -7,6 +7,7 @@ from app.engine.turn_fsm import (
     can_discard,
     concede_penalty,
     discard,
+    discard_incurring_penalty,
     draw_from_deck,
     draw_from_discard,
     end_turn,
@@ -84,8 +85,25 @@ def test_discard_allowed_after_required_meld_created() -> None:
     assert state.phase == TurnPhase.DISCARD
 
 
-def test_discard_blocked_when_team_not_opened_and_threshold_not_met() -> None:
+def test_discard_free_after_deck_draw_even_if_team_not_opened() -> None:
+    # rules.md section 6: after drawing from the deck melding is optional.
     state = draw_from_deck(start_turn("p1"))
+    assert can_discard(state, team_opened=False, threshold_met=False)
+    state = discard(
+        state,
+        team_opened=False,
+        threshold_met=False,
+        hand_empty_after=False,
+        team_has_closed_canasta=False,
+    )
+    assert state.phase == TurnPhase.DISCARD
+
+
+def test_discard_blocked_after_pickup_when_threshold_not_met() -> None:
+    # rules.md section 7: after taking the discard pile an unopened team must
+    # cover the opening threshold with this turn's melds.
+    state = draw_from_discard(start_turn("p1"), natural())
+    state = record_meld_created(state)
     assert not can_discard(state, team_opened=False, threshold_met=False)
     with pytest.raises(IllegalActionError):
         discard(
@@ -126,6 +144,7 @@ def test_concede_penalty_edge_case_forces_discard_through() -> None:
     state = draw_from_discard(start_turn("p1"), natural())
     # stuck: must_meld_after_pickup not satisfied, cannot discard normally
     assert not can_discard(state, team_opened=False, threshold_met=False)
+    assert discard_incurring_penalty(state, team_opened=False, threshold_met=False)
 
     state = concede_penalty(state)
     assert state.pending_penalty is True

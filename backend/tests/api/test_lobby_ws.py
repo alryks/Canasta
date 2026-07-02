@@ -118,6 +118,33 @@ def test_start_game_flow_sends_personalized_game_state(
         assert data["turn_player_id"] == host_id
 
 
+def test_host_can_swap_occupied_seats(client: TestClient) -> None:
+    game = _create_game(client)
+    game_id = game["game_id"]
+    host_id = game["player_id"]
+    bob = _join(client, game_id, "Bob")
+
+    with client.websocket_connect(
+        f"/ws/games/{game_id}?token={game['host_session_token']}"
+    ) as host_ws:
+        host_ws.receive_json()
+
+        host_ws.send_json({"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}})
+        host_ws.receive_json()
+        host_ws.send_json({"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 1}})
+        host_ws.receive_json()
+
+        host_ws.send_json({"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 0}})
+        state = host_ws.receive_json()
+
+    seats = {p["id"]: p["seat"] for p in state["data"]["players"]}
+    teams = {p["id"]: p["team_id"] for p in state["data"]["players"]}
+    assert seats[bob["player_id"]] == 0
+    assert seats[host_id] == 1
+    assert teams[bob["player_id"]] == "A"
+    assert teams[host_id] == "B"
+
+
 def test_non_host_cannot_start_game(
     client: TestClient, redis_store: RedisGameStore
 ) -> None:

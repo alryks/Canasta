@@ -1,5 +1,4 @@
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { TeamZone } from './TeamZone'
 import type { Meld } from '../lib/protocol'
@@ -31,36 +30,31 @@ describe('TeamZone', () => {
         teamId="A"
         melds={melds}
         isOwnTeam
-        canAddCards={false}
-        onAddToMeld={vi.fn()}
         canStealFrom={false}
         stealTarget={null}
         onSelectStealTarget={vi.fn()}
       />,
     )
 
-    expect(screen.getByText('Команда A')).toBeInTheDocument()
-    expect(screen.getByText(/SET 4/)).toBeInTheDocument()
-    expect(screen.getByText(/SET 9/)).toBeInTheDocument()
+    expect(screen.getByText('Ваши комбинации')).toBeInTheDocument()
+    expect(screen.getByText('4 ×2')).toBeInTheDocument()
+    expect(screen.getByText('9 ×1')).toBeInTheDocument()
   })
 
-  it('routes onAddToMeld with the clicked meld id', async () => {
-    const onAddToMeld = vi.fn()
+  it('labels the opponents zone with the team id', () => {
     render(
       <TeamZone
-        teamId="A"
-        melds={melds}
-        isOwnTeam
-        canAddCards
-        onAddToMeld={onAddToMeld}
+        teamId="B"
+        melds={[]}
+        isOwnTeam={false}
         canStealFrom={false}
         stealTarget={null}
         onSelectStealTarget={vi.fn()}
       />,
     )
 
-    const addButtons = screen.getAllByText('Добавить сюда')
-    await userEvent.click(addButtons[1])
-    expect(onAddToMeld).toHaveBeenCalledWith('m2')
+    expect(screen.getByText('Соперники · команда B')).toBeInTheDocument()
+    expect(screen.queryByText('Стол пуст')).not.toBeInTheDocument()
   })
+
 })

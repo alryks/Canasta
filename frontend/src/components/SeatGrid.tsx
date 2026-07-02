@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { LobbyPlayer } from '../lib/protocol'
+import { SeatAssignModal } from './SeatAssignModal'
 
 const SEATS = [0, 1, 2, 3] as const
 
@@ -10,13 +12,13 @@ interface SeatGridProps {
   onAddBot: (seat: number) => void
 }
 
-function playerLabel(player: LobbyPlayer, hostId: string | null): string {
-  const host = player.id === hostId ? ' (хост)' : ''
-  const status = player.is_bot ? 'бот' : player.connected ? 'в сети' : 'офлайн'
-  return `${player.name}${host} — ${status}`
+function statusLabel(player: LobbyPlayer): string {
+  if (player.is_bot) return 'бот'
+  return player.connected ? 'в сети' : 'офлайн'
 }
 
 export function SeatGrid({ players, hostId, isHost, onAssignSeat, onAddBot }: SeatGridProps) {
+  const [assignSeat, setAssignSeat] = useState<number | null>(null)
   const bySeat = new Map(players.filter((p) => p.seat !== null).map((p) => [p.seat, p]))
   const unseated = players.filter((p) => p.seat === null)
 
@@ -27,58 +29,40 @@ export function SeatGrid({ players, hostId, isHost, onAssignSeat, onAddBot }: Se
           const player = bySeat.get(seat)
           return (
             <li key={seat} data-seat={seat} className={`seat-card${player ? ' is-filled' : ''}`}>
+              <span className="seat-label">Место {seat + 1}</span>
               {player ? (
                 <>
                   <span className="seat-player-name">{player.name}</span>
-                  <span>
-                    {player.id === hostId && <span className="host-tag">хост</span>}{' '}
-                    {player.is_bot ? (
-                      <span className="online-tag is-bot">🤖 бот</span>
-                    ) : (
-                      <span
-                        className={`online-tag ${player.connected ? 'is-online' : 'is-offline'}`}
-                      >
-                        {player.connected ? 'в сети' : 'офлайн'}
-                      </span>
-                    )}
+                  <span className="seat-player-meta">
+                    {player.id === hostId && <span className="host-tag">хост</span>}
+                    <span
+                      className={`online-tag ${
+                        player.is_bot ? 'is-bot' : player.connected ? 'is-online' : 'is-offline'
+                      }`}
+                    >
+                      {statusLabel(player)}
+                    </span>
                   </span>
-                  <span className="visually-hidden">{playerLabel(player, hostId)}</span>
+                  {isHost && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost seat-change-btn"
+                      onClick={() => setAssignSeat(seat)}
+                    >
+                      Сменить
+                    </button>
+                  )}
                 </>
               ) : isHost ? (
-                <>
-                  <label>
-                    <span className="seat-label">Место {seat + 1}</span>
-                    <select
-                      className="input"
-                      value=""
-                      aria-label={`Посадить на место ${seat + 1}`}
-                      onChange={(event) => {
-                        if (event.target.value) {
-                          onAssignSeat(event.target.value, seat)
-                        }
-                      }}
-                    >
-                      <option value="">свободно</option>
-                      {players.map((candidate) => (
-                        <option key={candidate.id} value={candidate.id}>
-                          {candidate.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-add-bot"
-                    onClick={() => onAddBot(seat)}
-                  >
-                    🤖 Добавить бота
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="btn seat-open-btn"
+                  onClick={() => setAssignSeat(seat)}
+                >
+                  Назначить
+                </button>
               ) : (
-                <>
-                  <span className="seat-label">Место {seat + 1}</span>
-                  <span>свободно</span>
-                </>
+                <span className="seat-free-label">свободно</span>
               )}
             </li>
           )
@@ -86,16 +70,29 @@ export function SeatGrid({ players, hostId, isHost, onAssignSeat, onAddBot }: Se
       </ul>
 
       {unseated.length > 0 && (
-        <div>
-          <p>Ожидают места:</p>
-          <ul aria-label="unseated" className="unseated-list">
-            {unseated.map((player) => (
-              <li key={player.id} className="unseated-chip">
-                {playerLabel(player, hostId)}
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul aria-label="unseated" className="unseated-list">
+          {unseated.map((player) => (
+            <li key={player.id} className="unseated-chip">
+              {player.name}
+              {player.id === hostId ? ' · хост' : ''}
+              {' · '}
+              {statusLabel(player)}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {assignSeat !== null && (
+        <SeatAssignModal
+          seat={assignSeat}
+          players={players}
+          onAssign={(playerId) => onAssignSeat(playerId, assignSeat)}
+          onAddBot={() => {
+            onAddBot(assignSeat)
+            setAssignSeat(null)
+          }}
+          onClose={() => setAssignSeat(null)}
+        />
       )}
     </div>
   )
