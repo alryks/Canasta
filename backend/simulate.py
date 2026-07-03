@@ -34,6 +34,8 @@ from app.bots.strategy import (
     AdvancedBotStrategy,
     SequenceBotStrategy,
     EliteBotStrategy,
+    FullPIMCBotStrategy,
+    MLBotStrategy,
 )
 
 
@@ -190,6 +192,8 @@ def main(n_games: int = 100, target: int = 5000, seed: int = 42) -> None:
         ("advanced",  AdvancedBotStrategy()),
         ("sequence",  SequenceBotStrategy()),
         ("elite",     EliteBotStrategy()),
+        ("fullpimc",  FullPIMCBotStrategy()),
+        ("mlbot",     MLBotStrategy()),
     ]
 
     matchups = list(combinations(bots, 2))

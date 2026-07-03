@@ -19,3 +19,6 @@ docker-compose.override.yml
 
 # Local Claude Code scratch (preview server launch config, etc.)
 .claude/
+
+# ML training cache (large binary, regenerate with train_value_model.py)
+backend/_train_cache.npz

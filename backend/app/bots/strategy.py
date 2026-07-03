@@ -1317,13 +1317,15 @@ class EliteBotStrategy:
        discard; the opponent is unlikely to hold or need them.
     """
 
-    N_SAMPLES = 12          # MC samples per draw decision
-    N_DISCARD_SAMPLES = 6   # MC samples per discard candidate
+    N_SAMPLES = 24          # MC samples per draw decision (was 20)
+    N_DISCARD_SAMPLES = 8   # MC samples per discard candidate
     COPIES_PER_RANK = 8     # 4 suits × 2 decks
 
-    def __init__(self, n_samples: int = 12, n_discard_samples: int = 6) -> None:
-        self._n = n_samples
-        self._n_discard = n_discard_samples
+    def __init__(self) -> None:
+        # Use class-level constants so subclasses that override N_SAMPLES get
+        # the right count without needing to override __init__ as well.
+        self._n = self.N_SAMPLES
+        self._n_discard = self.N_DISCARD_SAMPLES
         self._adv = AdvancedBotStrategy()
         self._rng = random.Random()
 
@@ -1364,9 +1366,15 @@ class EliteBotStrategy:
 
         Runs a mini-rollout of our own ACT phase (using AdvancedBot) before
         evaluating so that the pile's meld potential is captured properly.
+        In mid/late game (deck < 40) also simulates 1 full opponent-reaction
+        turn to capture threats like near-canasta melds.
+        NOTE: apply_action mutates the deal in-place, so we must determinize
+        separately for each action — shared worlds are NOT safe.
         """
         total = 0.0
         n_ok = 0
+        # 1-turn opponent lookahead only mid/late game where threats crystallise.
+        n_extra = 0 if len(deal.deck) >= 40 else 1
 
         for _ in range(self._n):
             det = self._determinize(deal, player_id)
@@ -1383,6 +1391,8 @@ class EliteBotStrategy:
             # Mini-rollout: simulate our own ACT phase so the value function
             # sees post-meld table state rather than a bloated pre-meld hand.
             sim = self._rollout_own_act(sim, player_id)
+            if n_extra:
+                sim = self._multi_turn_rollout(sim, player_id, n_extra)
 
             total += self._fast_value(sim, player_id)
             n_ok += 1
@@ -1392,7 +1402,11 @@ class EliteBotStrategy:
     def _rollout_own_act(
         self, deal: DealState, player_id: str, max_steps: int = 10
     ) -> DealState:
-        """Simulate our own ACT phase up to (but not including) discard."""
+        """Simulate our own ACT phase up to (but not including) discard.
+
+        Stopping before discard evaluates the post-meld position, capturing
+        the value of opened melds without the noise of a simulated discard choice.
+        """
         sim = deal
         for _ in range(max_steps):
             if sim.deal_over:
@@ -1438,6 +1452,9 @@ class EliteBotStrategy:
         my_team = deal.player_team[player_id]
         opp_team = next(t for t in deal.teams if t != my_team)
 
+        # 1.0 = fresh deck, 0.0 = exhausted; used to scale late-game urgency.
+        deck_frac = len(deal.deck) / 108.0
+
         def team_val(team_id: str) -> float:
             table = deal.teams[team_id]
             hand_cards = [
@@ -1448,34 +1465,42 @@ class EliteBotStrategy:
             ]
 
             has_canasta = any(m.is_closed for m in table.melds)
+            open_melds  = [m for m in table.melds if not m.is_closed]
 
-            # Meld table value (sign flips without a canasta)
+            # Meld table value.  Without a canasta the team cannot go out, so
+            # locked-in table points are only ~25% as actionable — they count
+            # at end-of-deal but expose the team to opponent initiative risk.
             raw_pts = sum(m.point_value for m in table.melds)
-            table_pts = raw_pts if has_canasta else -raw_pts
+            table_pts = raw_pts if has_canasta else raw_pts * 0.25
 
             # Canasta bonuses already secured
             canasta_bonus = sum(m.canasta_bonus for m in table.melds)
 
             # Future value of open melds: each card already on table ~18 pts
-            open_progress = sum(m.size * 18 for m in table.melds if not m.is_closed)
+            open_progress = sum(m.size * 18 for m in open_melds)
 
-            # Hand penalty (expect ~55% of face value to materialise as loss)
-            non_three = [c for c in hand_cards if not c.is_three]
-            hand_penalty = -sum(c.point_value for c in non_three) * 0.55
+            # Convex reward for melds close to canasta completion (6/7 >> 3/7)
+            canasta_completion = sum(
+                (m.size / CANASTA_SIZE) ** 2 * 60 for m in open_melds
+            )
 
-            # Pair/triple potential in hand
+            # Hand penalty scales with game progress:
+            #   early (deck_frac≈1): 0.35 × face   (most cards will be melded)
+            #   late  (deck_frac≈0): 1.00 × face   (stranded cards will be lost)
+            non_three = [c for c in hand_cards if not c.is_three and not c.is_wild]
+            penalty_mult = 0.35 + 0.65 * (1.0 - deck_frac)
+            hand_penalty = -sum(c.point_value for c in non_three) * penalty_mult
+
+            # Pair/triple potential in hand (valued at 15 per card in group)
             groups: dict[Rank, int] = {}
             for c in hand_cards:
                 if not c.is_wild and not c.is_three:
                     groups[c.rank] = groups.get(c.rank, 0) + 1
-            pair_pot = sum(
-                cnt * 12
-                for cnt in groups.values()
-                if cnt >= 2
-            )
+            pair_pot = sum(cnt * 15 for cnt in groups.values() if cnt >= 2)
 
-            # Wilds are especially valuable (flexible, complete canastas)
-            wild_bonus = sum(c.point_value for c in hand_cards if c.is_wild) * 1.3
+            # Wilds: very valuable early (2.2×), still valuable late (1.8×)
+            wild_mult = 1.8 + 0.4 * deck_frac
+            wild_bonus = sum(c.point_value for c in hand_cards if c.is_wild) * wild_mult
 
             # Accumulated penalties (e.g. -1000 from ConcedePenalty)
             accrued_penalty = deal.penalties.get(team_id, 0)
@@ -1484,6 +1509,7 @@ class EliteBotStrategy:
                 table_pts
                 + canasta_bonus
                 + open_progress
+                + canasta_completion
                 + hand_penalty
                 + pair_pot
                 + wild_bonus
@@ -1593,20 +1619,24 @@ class EliteBotStrategy:
         team_id = deal.player_team[player_id]
         opp_team = next(t for t in deal.teams if t != team_id)
         opp_table = deal.teams[opp_team]
-        my_table = deal.teams[team_id]
+        my_table  = deal.teams[team_id]
 
         # Exit urgently: opponent one card from canasta
         if any(m.size >= 6 for m in opp_table.melds if not m.is_closed):
             return True
 
-        # Exit when deck is thin (game naturally ending soon)
-        if len(deal.deck) <= 12:
+        # Exit threshold: more urgent when opponent is close to winning the match
+        opp_thresh = deal.thresholds.get(opp_team, 30)
+        deck_threshold = 25 if opp_thresh >= 120 else 18
+        if len(deal.deck) <= deck_threshold:
             return True
 
-        # Exit when winning significantly on closed-meld points
-        my_closed_pts = sum(m.point_value for m in my_table.melds if m.is_closed)
+        # Exit when we hold a material positional advantage in closed melds
+        my_closed_pts  = sum(m.point_value for m in my_table.melds  if m.is_closed)
         opp_closed_pts = sum(m.point_value for m in opp_table.melds if m.is_closed)
-        if my_closed_pts > opp_closed_pts + 150:
+        # Lower advantage threshold when opponent is in late-match territory
+        advantage_needed = 80 if opp_thresh >= 90 else 100
+        if my_closed_pts > opp_closed_pts + advantage_needed:
             return True
 
         return False
@@ -1642,10 +1672,22 @@ class EliteBotStrategy:
             elif self._adv._team_sequence_lookahead(deal, team_id, card):
                 s += 15.0
 
-            danger = self._adv._opponent_danger(deal, team_id, card)
+            # Hard block: never feed an opponent's SET meld that is one card from canasta.
+            for opp_id, opp_table in deal.teams.items():
+                if opp_id == team_id:
+                    continue
+                for meld in opp_table.melds:
+                    if meld.is_closed or meld.size < 6 or meld.kind.name != "SET":
+                        continue
+                    if card.rank.value == meld.rank_or_suit_anchor:
+                        return float("inf")  # absolute ban
+
+            # Combine bayesian danger (board danger × P(opp holds)) with
+            # saturation discount (fewer unknown copies = less dangerous).
+            b_danger = self._bayesian_danger(deal, team_id, card)
             known = saturation.get(card.rank, 0)
             saturation_discount = max(0.0, (known - 3) / 5)
-            s += danger * 20.0 * (1.0 - saturation_discount)
+            s += b_danger * 20.0 * (1.0 - saturation_discount)
 
             s += card.point_value * 0.2
             return s
@@ -1673,12 +1715,367 @@ class EliteBotStrategy:
 
         return counts
 
+    def _bayesian_danger(
+        self, deal: DealState, own_team_id: str, card: Card
+    ) -> float:
+        """Board danger weighted by P(opponent holds this rank).
+
+        Uses a hypergeometric approximation to compute P(≥1 opponent holds
+        the rank), then multiplies raw board danger by that probability.
+        More accurate than flat danger when many copies are already visible.
+        """
+        if card.is_wild or card.is_three:
+            return 0.0
+
+        copies_total = 8   # 4 suits × 2 decks
+        visible = 0
+        for pid, h in deal.hands.items():
+            if deal.player_team[pid] == own_team_id:
+                visible += sum(
+                    1 for c in h
+                    if c.rank == card.rank and not c.is_wild and not c.is_three
+                )
+        for team in deal.teams.values():
+            for meld in team.melds:
+                for s in meld.slots:
+                    if s is not None and s.rank == card.rank and not s.is_wild:
+                        visible += 1
+        for c2 in deal.discard_pile:
+            if c2.rank == card.rank and not c2.is_wild:
+                visible += 1
+
+        unseen_rank  = max(0, copies_total - visible)
+        opp_hand_sz  = sum(
+            len(h) for pid, h in deal.hands.items()
+            if deal.player_team[pid] != own_team_id
+        )
+        unseen_total = len(deal.deck) + opp_hand_sz
+
+        if unseen_total <= 0 or unseen_rank <= 0:
+            p_holds = 0.0
+        else:
+            p_holds = 1.0 - max(
+                0.0,
+                (unseen_total - unseen_rank) / unseen_total,
+            ) ** opp_hand_sz
+
+        return self._adv._opponent_danger(deal, own_team_id, card) * p_holds
+
+    # ── Shared rollout primitive (also used by FullPIMC / ML subclasses) ────────
+
+    def _multi_turn_rollout(
+        self, deal: DealState, player_id: str, n_turns: int
+    ) -> DealState:
+        """Drive all players with AdvancedBot until player_id's DRAW phase
+        appears n_turns more times.  Captures how opponents react to our moves."""
+        sim = deal
+        own_draws = 0
+        cap = n_turns * len(sim.player_order) * 8 + 20
+
+        for _ in range(cap):
+            if sim.deal_over:
+                break
+            pid   = sim.turn_state.current_player_id
+            phase = sim.turn_state.phase
+
+            if pid == player_id and phase == TurnPhase.DRAW:
+                own_draws += 1
+                if own_draws > n_turns:
+                    break
+
+            try:
+                intent, data = self._adv.choose_intent(sim, pid)
+                sim = _exec_intent(sim, pid, intent, data)
+            except Exception:
+                try:
+                    sim = _exec_intent(sim, pid, *_fallback_move(sim, pid))
+                except Exception:
+                    break
+
+        return sim
+
+    # ── DISCARD: lightweight MC layer (4 samples, 1-turn full lookahead) ────────
+
+    N_DISCARD_SAMPLES_LIGHT = 4   # cheap MC samples (NOT used by Elite._act — heuristic is better)
+
+    def _choose_discard_mc(
+        self, deal: DealState, player_id: str
+    ) -> tuple[str, dict]:
+        """Light Monte Carlo discard for EliteBotStrategy.
+
+        Prefilters to the top 3 heuristic candidates, then ranks them via
+        4 MC samples each (1 full opponent-turn lookahead).  Much cheaper than
+        FullPIMC's discard but still captures opponent-reaction signal missing
+        from the pure heuristic.
+        """
+        hand = deal.hands[player_id]
+
+        black = next((c for c in hand if c.is_black_three), None)
+        if black:
+            return "discard", {"card_id": black.id}
+
+        candidates = [c for c in hand if not c.is_wild and not c.is_three]
+        if not candidates:
+            return self._adv._choose_discard(deal, player_id)
+
+        team_id = deal.player_team[player_id]
+        groups  = _naturals_by_rank(hand)
+        sat     = self._rank_saturation(deal, player_id)
+
+        def _heur(card: Card) -> float:
+            copies = len(groups.get(card.rank, []))
+            s = 25.0 * (copies == 2) - 5.0 * (copies >= 3) - 10.0 * (copies == 1)
+            if self._adv._fits_team_meld(deal, team_id, card):
+                s += 35.0
+            elif self._adv._team_sequence_lookahead(deal, team_id, card):
+                s += 15.0
+            danger = self._adv._opponent_danger(deal, team_id, card)
+            known  = sat.get(card.rank, 0)
+            s += danger * 20.0 * max(0.0, 1.0 - (known - 3) / 5.0)
+            s += card.point_value * 0.2
+            return s
+
+        contenders = sorted(candidates, key=_heur)[:3]
+        if len(contenders) == 1:
+            return "discard", {"card_id": contenders[0].id}
+
+        best_card = contenders[0]
+        best_ev   = float("-inf")
+        for card in contenders:
+            total = 0.0
+            n_ok  = 0
+            for _ in range(self.N_DISCARD_SAMPLES_LIGHT):
+                det = self._determinize(deal, player_id)
+                try:
+                    sim = _exec_intent(det, player_id, "discard", {"card_id": card.id})
+                except Exception:
+                    continue
+                sim = self._multi_turn_rollout(sim, player_id, n_turns=1)
+                total += self._fast_value(sim, player_id)
+                n_ok  += 1
+            ev = total / n_ok if n_ok else float("-inf")
+            if ev > best_ev:
+                best_ev   = ev
+                best_card = card
+
+        return "discard", {"card_id": best_card.id}
+
+
+class FullPIMCBotStrategy(EliteBotStrategy):
+    """EliteBotStrategy + three algorithmic upgrades (no ML):
+
+    1. Multi-turn rollout — DRAW-phase MC now simulates N_LOOKAHEAD_TURNS full
+       player turns (all 4 players) rather than stopping after our own ACT.
+    2. PIMC for DISCARD — each candidate discard card is scored via Monte Carlo
+       (N_DISCARD_SAMPLES worlds × 1 opponent turn lookahead) instead of a
+       static heuristic score.
+    3. Bayesian danger — discard scoring weights board danger by the probability
+       that opponents actually hold the rank, not just "is it useful on board".
+    """
+
+    N_SAMPLES         = 30   # draw-phase MC samples (Elite=24, FullPIMC must exceed it)
+    N_DISCARD_SAMPLES = 14   # MC samples per discard candidate (was 12)
+    N_LOOKAHEAD_TURNS = 2    # full player cycles to simulate in draw MC
+    N_DISCARD_TURNS   = 2    # opponent turns to simulate per discard candidate
+
+    # ── Multi-turn rollout ────────────────────────────────────────────────
+
+    def _adaptive_depth(self, deal: DealState, base: int) -> int:
+        """Use shallower rollout when the deck is large (low signal, high noise).
+
+        Early game (≥55 cards): 1 turn is sufficient — the position is fluid
+        and deeper simulation just amplifies random card-distribution noise.
+        Late game (<55 cards): full depth for decisive end-game choices.
+        """
+        return 1 if len(deal.deck) >= 55 else base
+
+    def _mc_ev(self, deal: DealState, player_id: str, take_pile: bool) -> float:
+        """Override: extend rollout beyond own ACT to N_LOOKAHEAD_TURNS turns."""
+        total  = 0.0
+        n_ok   = 0
+        n_turns = self._adaptive_depth(deal, self.N_LOOKAHEAD_TURNS)
+
+        for _ in range(self._n):
+            det    = self._determinize(deal, player_id)
+            action = DrawDiscard() if take_pile else DrawDeck()
+
+            try:
+                sim = apply_action(det, player_id, action)
+            except (IllegalActionError, Exception):
+                if take_pile:
+                    total -= 800
+                    n_ok  += 1
+                continue
+
+            sim = self._multi_turn_rollout(sim, player_id, n_turns)
+            total += self._fast_value(sim, player_id)
+            n_ok  += 1
+
+        return total / n_ok if n_ok else 0.0
+
+    # ── PIMC discard ──────────────────────────────────────────────────────
+
+    def _act(self, deal: DealState, player_id: str) -> tuple[str, dict]:
+        """Identical to EliteBot's _act but routes the discard through PIMC."""
+        team = deal.team_of(player_id)
+        turn = deal.turn_state
+        hand = deal.hands[player_id]
+
+        if (
+            any(m.is_closed for m in team.melds)
+            and not turn.must_meld_after_pickup
+            and turn.melds_created_this_turn == 0
+        ):
+            wilds_h   = _wilds_of(hand)
+            non_three = [c for c in hand if not c.is_three and not c.is_wild]
+            if (
+                not wilds_h
+                and 1 <= len(non_three) <= 2
+                and self._should_exit_now(deal, player_id)
+            ):
+                groups = _naturals_by_rank(hand)
+                for meld in sorted(team.melds, key=lambda m: -m.size):
+                    if meld.is_closed:
+                        continue
+                    take = self._adv._closing_cards(meld, groups, [])
+                    if take and self._adv._may_spend(
+                        deal, player_id, {c.id for c in take}, closes_canasta=True
+                    ):
+                        return "add_to_meld", {
+                            "meld_id": meld.id,
+                            "card_ids": [c.id for c in take],
+                        }
+                return self._choose_discard_pimc(deal, player_id)
+
+        intent, data = self._adv._choose_act(deal, player_id)
+        if intent == "discard":
+            return self._choose_discard_pimc(deal, player_id)
+        return intent, data
+
+    def _choose_discard_pimc(
+        self, deal: DealState, player_id: str
+    ) -> tuple[str, dict]:
+        """Monte Carlo discard: pick the card that maximises expected positional
+        value after one round of opponent responses.
+
+        Pre-filters to the 6 cheapest-looking candidates by heuristic score,
+        then uses MC to rank them accurately.
+        """
+        hand = deal.hands[player_id]
+
+        black = next((c for c in hand if c.is_black_three), None)
+        if black:
+            return "discard", {"card_id": black.id}
+
+        candidates = [c for c in hand if not c.is_wild and not c.is_three]
+        if not candidates:
+            return self._choose_discard_elite(deal, player_id)
+
+        team_id = deal.player_team[player_id]
+        groups  = _naturals_by_rank(hand)
+        sat     = self._rank_saturation(deal, player_id)
+
+        def _heur(card: Card) -> float:
+            copies = len(groups.get(card.rank, []))
+            s = 25.0 * (copies == 2) - 5.0 * (copies >= 3) - 10.0 * (copies == 1)
+            if self._adv._fits_team_meld(deal, team_id, card):
+                s += 35.0
+            elif self._adv._team_sequence_lookahead(deal, team_id, card):
+                s += 15.0
+            # Use bayesian danger (board danger × P(opp holds)) + saturation discount
+            b_danger = self._bayesian_danger(deal, team_id, card)
+            known    = sat.get(card.rank, 0)
+            s       += b_danger * 20.0 * max(0.0, 1.0 - (known - 3) / 5.0)
+            s       += card.point_value * 0.2
+            return s
+
+        # Pre-sort by heuristic, then deduplicate by rank: cards of the same
+        # rank are equivalent in set-meld Canasta (same point value, same meld
+        # target), so their MC scores are identical — no need to evaluate twice.
+        sorted_cands = sorted(candidates, key=_heur)
+        seen_ranks: set = set()
+        unique_contenders: list[Card] = []
+        for c in sorted_cands:
+            if c.rank not in seen_ranks:
+                unique_contenders.append(c)
+                seen_ranks.add(c.rank)
+            if len(unique_contenders) == 5:
+                break
+
+        if len(unique_contenders) == 1:
+            return "discard", {"card_id": unique_contenders[0].id}
+
+        best_card = unique_contenders[0]
+        best_ev   = float("-inf")
+        for card in unique_contenders:
+            ev = self._mc_ev_discard(deal, player_id, card)
+            if ev > best_ev:
+                best_ev   = ev
+                best_card = card
+
+        return "discard", {"card_id": best_card.id}
+
+    def _mc_ev_discard(
+        self, deal: DealState, player_id: str, card: Card
+    ) -> float:
+        """Average positional value after discarding `card` across
+        N_DISCARD_SAMPLES determinisations (N_DISCARD_TURNS lookahead each).
+        """
+        total   = 0.0
+        n_ok    = 0
+        n_turns = self._adaptive_depth(deal, self.N_DISCARD_TURNS)
+
+        for _ in range(self._n_discard):
+            det = self._determinize(deal, player_id)
+            try:
+                sim = _exec_intent(det, player_id, "discard", {"card_id": card.id})
+            except Exception:
+                continue
+            sim = self._multi_turn_rollout(sim, player_id, n_turns=n_turns)
+            total += self._fast_value(sim, player_id)
+            n_ok  += 1
+
+        return total / n_ok if n_ok else 0.0
+
+class MLBotStrategy(FullPIMCBotStrategy):
+    """FullPIMCBotStrategy + trained positional value function.
+
+    The handcrafted _fast_value heuristic (with its magic coefficients) is
+    replaced by an MLP trained on 50k+ self-play game positions.
+    Falls back to the heuristic if value_weights.json is missing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        from app.bots.value_model import load_model
+        self._ml_available = load_model()
+
+    def _fast_value(self, deal: DealState, player_id: str) -> float:
+        """Adaptive ML/heuristic blend that shifts toward ML as the game matures.
+
+        Early game (deck full): 25% ML — positions are fluid, heuristic more reliable.
+        Late game (deck empty): 80% ML — positions stable, model better calibrated.
+        Falls back to 100% heuristic if the model is not loaded.
+        """
+        heuristic = super()._fast_value(deal, player_id)
+        if not self._ml_available:
+            return heuristic
+        from app.bots.value_model import predict_value
+        ml_val = predict_value(deal, player_id)
+        if ml_val is None:
+            return heuristic
+        deck_frac = len(deal.deck) / 108.0            # 1.0 = fresh, 0.0 = empty
+        ml_weight = 0.25 + 0.55 * (1.0 - deck_frac)  # 0.25 early → 0.80 late
+        return ml_weight * ml_val + (1.0 - ml_weight) * heuristic
+
 
 BOT_STRATEGIES: dict[str, BotStrategy] = {
-    "simple": SimpleBotStrategy(),
+    "simple":    SimpleBotStrategy(),
     "heuristic": HeuristicBotStrategy(),
-    "advanced": AdvancedBotStrategy(),
-    "sequence": SequenceBotStrategy(),
-    "elite": EliteBotStrategy(),
+    "advanced":  AdvancedBotStrategy(),
+    "sequence":  SequenceBotStrategy(),
+    "elite":     EliteBotStrategy(),
+    "fullpimc":  FullPIMCBotStrategy(),
+    "mlbot":     MLBotStrategy(),
 }
 DEFAULT_BOT_STRATEGY = "sequence"
