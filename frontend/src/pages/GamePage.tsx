@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { useEffect, useMemo, useState } from 'react'
 import { ChatPanel } from '../components/ChatPanel'
 import { DealResultModal } from '../components/DealResultModal'
@@ -21,6 +22,7 @@ import {
   SEQUENCE_RANKS,
 } from '../lib/cards'
 import { makeCardDragSource } from '../lib/cardDrag'
+import { CARD_ENTER_TO, CARD_FLIGHT_TRANSITION, cardLayoutId } from '../lib/cardMotion'
 import { isOpeningThresholdRollback } from '../lib/errors'
 import { buildGameUiModel } from '../lib/gameUiModel'
 import type { Card, LobbyPlayer, Meld } from '../lib/protocol'
@@ -495,7 +497,15 @@ export function GamePage() {
                     aria-label="Взять сброс"
                     onClick={() => send('draw_discard', {})}
                   >
-                    <span style={{ display: 'inline-block' }}>
+                    <motion.span
+                      key={topDiscardCard.id}
+                      layout
+                      layoutId={cardLayoutId(topDiscardCard.id)}
+                      initial={{ opacity: 0, y: -24, scale: 0.75 }}
+                      animate={CARD_ENTER_TO}
+                      transition={CARD_FLIGHT_TRANSITION}
+                      style={{ display: 'inline-block' }}
+                    >
                       <PlayingCard
                         card={topDiscardCard}
                         onPointerDown={
@@ -507,7 +517,7 @@ export function GamePage() {
                           ).onPointerDown
                         }
                       />
-                    </span>
+                    </motion.span>
                   </button>
                 ) : (
                   <div className="discard-empty" />

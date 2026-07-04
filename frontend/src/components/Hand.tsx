@@ -1,6 +1,8 @@
+import { motion } from 'framer-motion'
 import type { CSSProperties } from 'react'
 import { cardLabel } from '../lib/cards'
 import { makeCardDragSource } from '../lib/cardDrag'
+import { CARD_ENTER_FROM, CARD_ENTER_TO, CARD_FLIGHT_TRANSITION, cardLayoutId } from '../lib/cardMotion'
 import type { Card } from '../lib/protocol'
 import { useDragStore } from '../stores/dragStore'
 import { PlayingCard } from './PlayingCard'
@@ -92,16 +94,25 @@ export function Hand({
                 data-drop-zone={`handslot:${card.id}`}
                 className={reorderTarget === card.id ? 'is-insert-target' : ''}
               >
-                <PlayingCard
-                  card={card}
-                  selected={selectedIds.includes(card.id)}
-                  pressed={selectedIds.includes(card.id)}
-                  dragging={draggingCardId === card.id}
-                  className={newCardIdSet.has(card.id) ? 'is-new-card' : ''}
-                  onClick={() => onToggleCard(card.id)}
-                  onPointerDown={onPointerDown}
-                  ariaLabel={cardLabel(card)}
-                />
+                <motion.span
+                  layout
+                  layoutId={cardLayoutId(card.id)}
+                  initial={CARD_ENTER_FROM}
+                  animate={CARD_ENTER_TO}
+                  transition={CARD_FLIGHT_TRANSITION}
+                  style={{ display: 'inline-block' }}
+                >
+                  <PlayingCard
+                    card={card}
+                    selected={selectedIds.includes(card.id)}
+                    pressed={selectedIds.includes(card.id)}
+                    dragging={draggingCardId === card.id}
+                    className={newCardIdSet.has(card.id) ? 'is-new-card' : ''}
+                    onClick={() => onToggleCard(card.id)}
+                    onPointerDown={onPointerDown}
+                    ariaLabel={cardLabel(card)}
+                  />
+                </motion.span>
               </li>
             )
           })}

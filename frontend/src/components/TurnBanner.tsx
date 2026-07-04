@@ -1,3 +1,5 @@
+import { AnimatePresence, motion } from 'framer-motion'
+
 interface TurnBannerProps {
   turnPlayerId: string
   viewerId: string | null
@@ -22,8 +24,18 @@ export function TurnBanner({
   const phaseLabel = PHASE_LABELS[turnPhase] ?? turnPhase
 
   return (
-    <p className={`turn-banner${isMyTurn ? ' is-my-turn' : ''}`} role="status">
-      {isMyTurn ? 'Ваш ход' : `Ходит ${turnPlayerName}`} — {phaseLabel}
-    </p>
+    <AnimatePresence mode="wait">
+      <motion.p
+        key={`${turnPlayerId}:${turnPhase}`}
+        className={`turn-banner${isMyTurn ? ' is-my-turn' : ''}`}
+        role="status"
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 10 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+      >
+        {isMyTurn ? 'Ваш ход' : `Ходит ${turnPlayerName}`} — {phaseLabel}
+      </motion.p>
+    </AnimatePresence>
   )
 }

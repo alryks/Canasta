@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion'
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
@@ -8,6 +9,7 @@ import {
   SEQUENCE_RANKS,
   suitSymbol,
 } from '../lib/cards'
+import { CARD_ENTER_FROM, CARD_ENTER_TO, CARD_FLIGHT_TRANSITION, cardLayoutId } from '../lib/cardMotion'
 import { meldCardOverlapPx } from '../lib/meldLayout'
 import type { Card, Meld } from '../lib/protocol'
 import { useDragStore } from '../stores/dragStore'
@@ -102,12 +104,21 @@ export function MeldStack({
           <span className="canasta-pile">
             <PlayingCard faceDown size="small" />
             <PlayingCard faceDown size="small" />
-                <PlayingCard
-                  card={topCard}
-                  size="small"
-                  className={highlightedCards.has(topCard.id) ? 'is-new-card' : ''}
-                  ariaLabel={cardLabel(topCard)}
-                />
+            <motion.span
+              layout
+              layoutId={cardLayoutId(topCard.id)}
+              initial={CARD_ENTER_FROM}
+              animate={CARD_ENTER_TO}
+              transition={CARD_FLIGHT_TRANSITION}
+              style={{ display: 'inline-block' }}
+            >
+              <PlayingCard
+                card={topCard}
+                size="small"
+                className={highlightedCards.has(topCard.id) ? 'is-new-card' : ''}
+                ariaLabel={cardLabel(topCard)}
+              />
+            </motion.span>
             <span className="canasta-count">×{cards.length}</span>
           </span>
         </button>
@@ -134,7 +145,14 @@ export function MeldStack({
           const stealable = canStealFrom && isWildRank(card.rank)
           return (
             <li key={card.id}>
-              <span style={{ display: 'inline-block' }}>
+              <motion.span
+                layout
+                layoutId={cardLayoutId(card.id)}
+                initial={CARD_ENTER_FROM}
+                animate={CARD_ENTER_TO}
+                transition={CARD_FLIGHT_TRANSITION}
+                style={{ display: 'inline-block' }}
+              >
                 {stealable ? (
                   <PlayingCard
                     card={card}
@@ -158,7 +176,7 @@ export function MeldStack({
                     ariaLabel={cardLabel(card)}
                   />
                 )}
-              </span>
+              </motion.span>
             </li>
           )
         })}

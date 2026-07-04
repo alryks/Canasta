@@ -1546,8 +1546,9 @@ select.input:focus {
 .hand-tray .playing-card {
   --card-w: var(--hand-card-w);
   --card-h: var(--hand-card-h);
+  transform-origin: bottom center;
   transition:
-    transform 0.15s ease,
+    transform 0.15s cubic-bezier(0.2, 0.8, 0.3, 1),
     box-shadow 0.15s ease;
 }
 
@@ -1556,21 +1557,37 @@ select.input:focus {
   flex: 0 0 calc(var(--hand-card-w) * var(--hand-overlap));
   min-width: 0;
   height: var(--hand-card-h);
+  transition: margin 0.15s ease;
 }
 
 .hand-tray li:last-child {
   flex: 0 0 var(--hand-card-w);
 }
 
-.hand-tray li:hover {
-  z-index: 20;
-}
+/* Hover-to-enlarge is a mouse/trackpad affordance only: on touch devices
+   :hover sticks after a tap and never releases, permanently burying
+   neighboring cards under the enlarged one. */
+@media (hover: hover) and (pointer: fine) {
+  .hand-tray li:hover {
+    z-index: 20;
+  }
 
-.hand-tray li:hover .playing-card {
-  transform: translateY(-18px) scale(1.14);
-  box-shadow:
-    0 14px 26px rgba(0, 0, 0, 0.58),
-    0 0 0 1px rgba(232, 200, 119, 0.55);
+  /* Nudge immediate neighbors aside so the enlarged card's edges stay
+     visible instead of just burying their corner index under it. */
+  .hand-tray li:hover + li {
+    margin-left: 20px;
+  }
+
+  .hand-tray li:has(+ li:hover) {
+    margin-right: 20px;
+  }
+
+  .hand-tray li:hover .playing-card {
+    transform: translateY(-14px) scale(1.08);
+    box-shadow:
+      0 14px 26px rgba(0, 0, 0, 0.58),
+      0 0 0 1px rgba(232, 200, 119, 0.55);
+  }
 }
 
 /* Gold insertion bar while dragging a card over this position. */
