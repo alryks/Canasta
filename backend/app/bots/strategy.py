@@ -1874,7 +1874,7 @@ class FullPIMCBotStrategy(EliteBotStrategy):
     """
 
     N_SAMPLES         = 30   # draw-phase MC samples (Elite=24, FullPIMC must exceed it)
-    N_DISCARD_SAMPLES = 14   # MC samples per discard candidate (was 12)
+    N_DISCARD_SAMPLES = 14   # MC samples per discard candidate
     N_LOOKAHEAD_TURNS = 2    # full player cycles to simulate in draw MC
     N_DISCARD_TURNS   = 2    # opponent turns to simulate per discard candidate
 
@@ -2065,7 +2065,7 @@ class MLBotStrategy(FullPIMCBotStrategy):
         if ml_val is None:
             return heuristic
         deck_frac = len(deal.deck) / 108.0            # 1.0 = fresh, 0.0 = empty
-        ml_weight = 0.25 + 0.55 * (1.0 - deck_frac)  # 0.25 early → 0.80 late
+        ml_weight = 0.25 + 0.40 * (1.0 - deck_frac)  # 0.25 early → 0.65 late
         return ml_weight * ml_val + (1.0 - ml_weight) * heuristic
 
 
@@ -2078,4 +2078,4 @@ BOT_STRATEGIES: dict[str, BotStrategy] = {
     "fullpimc":  FullPIMCBotStrategy(),
     "mlbot":     MLBotStrategy(),
 }
-DEFAULT_BOT_STRATEGY = "sequence"
+DEFAULT_BOT_STRATEGY = "mlbot"
