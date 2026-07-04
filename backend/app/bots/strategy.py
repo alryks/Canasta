@@ -1321,13 +1321,17 @@ class EliteBotStrategy:
     N_DISCARD_SAMPLES = 8   # MC samples per discard candidate
     COPIES_PER_RANK = 8     # 4 suits × 2 decks
 
-    def __init__(self) -> None:
+    def __init__(self, rng_seed: int | None = None) -> None:
         # Use class-level constants so subclasses that override N_SAMPLES get
         # the right count without needing to override __init__ as well.
+        # rng_seed is None by default (unseeded, matches prior behavior) —
+        # pass a fixed int for reproducible A/B benchmarking, since PIMC
+        # sample counts consume different amounts of randomness and would
+        # otherwise make two configs diverge in game trajectory, not just outcome.
         self._n = self.N_SAMPLES
         self._n_discard = self.N_DISCARD_SAMPLES
         self._adv = AdvancedBotStrategy()
-        self._rng = random.Random()
+        self._rng = random.Random(rng_seed)
 
     def choose_intent(self, deal: DealState, player_id: str) -> tuple[str, dict]:
         turn = deal.turn_state
@@ -2045,8 +2049,8 @@ class MLBotStrategy(FullPIMCBotStrategy):
     Falls back to the heuristic if value_weights.json is missing.
     """
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, rng_seed: int | None = None) -> None:
+        super().__init__(rng_seed=rng_seed)
         from app.bots.value_model import load_model
         self._ml_available = load_model()
 
