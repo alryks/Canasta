@@ -1,13 +1,21 @@
 #!/usr/bin/env python3
 """
-v6 training: append seq-vs-elite data to existing cache, retrain.
+v10 training: fix Advanced-matchup instability + diversify human-partner proxy.
 
-Motivation: MLBot gets 48% vs Sequence (worse than Elite v5 at 55%).
-Root cause: training data had no elite-vs-sequence matchup so the model
-doesn't learn to handle Sequence's rapid canasta-building patterns.
+Problem observed v8->v9: MLBot vs Advanced dropped 72%->52%. The training cache
+has never included a *direct* fullpimc-vs-advanced matchup (v6 cache only had
+seq/adv, elite/adv, elite/elite, seq/elite) — the model has been generalizing
+to Advanced positions indirectly. Also, v9's human-partnership data used only
+AdvancedBotStrategy as the "human" proxy; real human skill varies more widely,
+so this adds a weaker proxy (HeuristicBotStrategy) too.
 
-Fix: generate 300 games of seq-vs-elite and append to existing 495k samples.
-Expected: ~90k extra samples, total ~585k, retrains in ~15 min.
+New data added on top of v9's 826k cache:
+  1. fullpimc vs advanced (300 games)              — direct signal, missing until now
+  2. [fullpimc+heuristic] vs [seq+seq] (200)        — weaker human-partner proxy vs Sequence
+  3. [fullpimc+heuristic] vs [elite+elite] (150)    — weaker human-partner proxy vs strong opp
+
+Architecture: 128-64 (proven), lr=2e-4 (proven). Checkpointed per matchup batch
+so a killed process can resume without regenerating data.
 """
 from __future__ import annotations
 
@@ -17,30 +25,31 @@ import random
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BACKEND_DIR)
 
 import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score, accuracy_score
 
-from app.engine.engine import start_new_deal, apply_action, final_deal_scores
+from app.engine.engine import start_new_deal, final_deal_scores
 from app.engine.turn_fsm import TurnPhase
 from app.bots.strategy import (
-    SequenceBotStrategy,
-    EliteBotStrategy,
-    _fallback_move,
-    _exec_intent,
+    AdvancedBotStrategy, HeuristicBotStrategy, SequenceBotStrategy,
+    EliteBotStrategy, FullPIMCBotStrategy,
+    _fallback_move, _exec_intent,
 )
 from app.bots.value_model import extract_features, N_FEATURES, WEIGHTS_PATH
 
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_train_cache.npz")
+CACHE = os.path.join(BACKEND_DIR, "_train_cache.npz")
 
 
-def _run_matchup_games(strat_a, strat_b, n_games, seed):
+def _run_matchup(strat_p0, strat_p2, strat_p1, strat_p3, n_games, seed):
+    """Run games with per-player strategies (supports mixed-quality teams)."""
     player_order = ["p0", "p1", "p2", "p3"]
     player_team  = {"p0": "A", "p2": "A", "p1": "B", "p3": "B"}
-    strategies   = {"p0": strat_a, "p2": strat_a, "p1": strat_b, "p3": strat_b}
+    strategies   = {"p0": strat_p0, "p2": strat_p2, "p1": strat_p1, "p3": strat_p3}
     rng = random.Random(seed)
     X, y = [], []
 
@@ -106,11 +115,12 @@ def _export_mlp_classifier(model, scaler):
 
 
 def main():
-    print("=== Canasta Value Function Training v6 (append seq-vs-elite) ===")
+    print("=== Canasta Value Function Training v10 ===")
+    print("    Fix Advanced-matchup instability + diversify human-partner proxy")
+    print()
 
-    # 1. Load existing cache
     if not os.path.exists(CACHE):
-        print(f"ERROR: Cache not found at {CACHE}. Run train_value_model.py first.")
+        print(f"ERROR: Cache not found at {CACHE}.")
         sys.exit(1)
 
     data = np.load(CACHE)
@@ -121,29 +131,44 @@ def main():
         print(f"ERROR: Cache has {X_old.shape[1]} features but model expects {N_FEATURES}.")
         sys.exit(1)
 
-    # 2. Generate new data: seq vs elite (both team perspectives captured per game)
-    new_samples = []
-    for desc, sa, sb, seed, n in [
-        ("seq vs elite",  SequenceBotStrategy(), EliteBotStrategy(),    41, 400),
-    ]:
+    fp  = FullPIMCBotStrategy()
+    heu = HeuristicBotStrategy()
+    seq = SequenceBotStrategy()
+    eli = EliteBotStrategy()
+    adv = AdvancedBotStrategy()
+
+    CACHE_DIR = os.path.dirname(CACHE)
+    matchups = [
+        # (key, desc, p0, p2, p1, p3, n_games, seed)
+        ("fp_vs_adv",     "fullpimc vs advanced       ", fp,  fp,  adv, adv, 300, 201),
+        ("fpheu_vs_seq",  "[fp+heuristic] vs [seq+seq]", fp,  heu, seq, seq, 200, 202),
+        ("fpheu_vs_eli",  "[fp+heuristic] vs [eli+eli]", fp,  heu, eli, eli, 150, 203),
+    ]
+
+    new_X, new_y = [], []
+    for key, desc, p0, p2, p1, p3, n, seed in matchups:
+        ckpt = os.path.join(CACHE_DIR, f"_v10_ckpt_{key}.npz")
+        if os.path.exists(ckpt):
+            d = np.load(ckpt)
+            cx, cy = d["X"].tolist(), d["y"].tolist()
+            new_X.extend(cx); new_y.extend(cy)
+            print(f"  {desc}: loaded checkpoint  {len(cx):,} samples", flush=True)
+            continue
         print(f"  {desc}: {n} games …", end=" ", flush=True)
         t0 = time.perf_counter()
-        X_new, y_new = _run_matchup_games(sa, sb, n, seed)
-        new_samples.append((X_new, y_new))
-        print(f"{len(X_new):,} samples  ({time.perf_counter()-t0:.1f}s)", flush=True)
+        X_b, y_b = _run_matchup(p0, p2, p1, p3, n, seed)
+        np.savez_compressed(ckpt, X=np.array(X_b, dtype=np.float32), y=np.array(y_b, dtype=np.float32))
+        new_X.extend(X_b); new_y.extend(y_b)
+        print(f"{len(X_b):,} samples  ({time.perf_counter()-t0:.1f}s)", flush=True)
 
-    # 3. Combine
-    all_X = list(X_old) + [row for (X, _) in new_samples for row in X]
-    all_y = list(y_old) + [lbl for (_, y) in new_samples for lbl in y]
-    X = np.array(all_X, dtype=np.float32)
-    y = np.array(all_y, dtype=np.float32)
-
-    # Save expanded cache
+    # Combine and save expanded cache
+    X = np.array(list(X_old) + new_X, dtype=np.float32)
+    y = np.array(list(y_old) + new_y, dtype=np.float32)
     np.savez_compressed(CACHE, X=X, y=y)
     print(f"\nExpanded dataset: {X.shape[0]:,} samples  |  win rate: {y.mean():.3f}")
 
-    # 4. Train (holdout eval + full retrain)
-    print("\nTraining MLPClassifier (128-64 hidden, sigmoid output) …")
+    # Train 128-64 (proven architecture)
+    print("\nTraining MLPClassifier (128-64 hidden) …")
     y_lbl = (y > 0.5).astype(int)
     split = int(0.9 * len(X))
     X_tr, X_val = X[:split], X[split:]
@@ -153,6 +178,7 @@ def main():
     X_tr_sc  = scaler.fit_transform(X_tr)
     X_val_sc = scaler.transform(X_val)
 
+    t0 = time.perf_counter()
     clf = MLPClassifier(
         hidden_layer_sizes=(128, 64), activation="relu", solver="adam",
         learning_rate_init=2e-4, batch_size=512, max_iter=300,
@@ -160,6 +186,7 @@ def main():
         validation_fraction=0.1,
     )
     clf.fit(X_tr_sc, y_tr)
+    print(f"  Train time: {time.perf_counter()-t0:.1f}s  |  Iterations: {clf.n_iter_}")
 
     y_pred_p = clf.predict_proba(X_val_sc)[:, 1]
     auc = roc_auc_score(y_val, y_pred_p)
@@ -167,6 +194,8 @@ def main():
     print(f"Holdout AUC: {auc:.4f}  |  Acc: {acc:.4f}  (n={len(y_val):,})")
 
     # Full retrain
+    print("\nFull retrain …")
+    t0 = time.perf_counter()
     scaler2 = StandardScaler(); X_sc = scaler2.fit_transform(X)
     clf2 = MLPClassifier(
         hidden_layer_sizes=(128, 64), activation="relu", solver="adam",
@@ -175,6 +204,7 @@ def main():
         validation_fraction=0.1,
     )
     clf2.fit(X_sc, y_lbl)
+    print(f"  Retrain time: {time.perf_counter()-t0:.1f}s  |  Iterations: {clf2.n_iter_}")
 
     payload = _export_mlp_classifier(clf2, scaler2)
     os.makedirs(os.path.dirname(WEIGHTS_PATH), exist_ok=True)

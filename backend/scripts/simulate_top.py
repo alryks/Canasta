@@ -4,8 +4,7 @@ Benchmark: top-tier bots only (50 games per matchup).
 Skips simple / heuristic since their weakness is established.
 
 Usage:
-    cd backend
-    python simulate_top.py [--games N] [--seed S]
+    python backend/scripts/simulate_top.py [--games N] [--seed S]
 """
 from __future__ import annotations
 
@@ -16,7 +15,7 @@ import time
 from itertools import combinations
 from statistics import mean
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.engine.actions import (
     AddToMeld, ConcedePenalty, CreateMeld, Discard, DrawDeck, DrawDiscard, StealWild,

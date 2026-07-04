@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Simulate 100 games for every pair of bot strategies.
 
-Run from the backend/ directory:
-    python simulate.py
+Run from anywhere:
+    python backend/scripts/simulate.py
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import time
 from itertools import combinations
 from statistics import mean, stdev
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.engine.actions import (
     AddToMeld,

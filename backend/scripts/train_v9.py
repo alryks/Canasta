@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 """
-v10 training: fix Advanced-matchup instability + diversify human-partner proxy.
+v9 training: fix Sequence regression + add human-partnership data.
 
-Problem observed v8->v9: MLBot vs Advanced dropped 72%->52%. The training cache
-has never included a *direct* fullpimc-vs-advanced matchup (v6 cache only had
-seq/adv, elite/adv, elite/elite, seq/elite) — the model has been generalizing
-to Advanced positions indirectly. Also, v9's human-partnership data used only
-AdvancedBotStrategy as the "human" proxy; real human skill varies more widely,
-so this adds a weaker proxy (HeuristicBotStrategy) too.
+Problem with v8: seq-vs-fullpimc data biased model against Sequence positions.
+Also: all training data was bot+bot teams — real games have a human partner.
 
-New data added on top of v9's 826k cache:
-  1. fullpimc vs advanced (300 games)              — direct signal, missing until now
-  2. [fullpimc+heuristic] vs [seq+seq] (200)        — weaker human-partner proxy vs Sequence
-  3. [fullpimc+heuristic] vs [elite+elite] (150)    — weaker human-partner proxy vs strong opp
+New data added on top of 647k v8 cache:
+  1. fullpimc vs seq (300 games)       — direct fix for Sequence bias
+  2. [fullpimc+adv] vs [seq+seq] (200) — human-partnership vs Sequence
+  3. [fullpimc+adv] vs [elite+elite] (150) — human-partnership vs strong opponent
 
-Architecture: 128-64 (proven), lr=2e-4 (proven). Checkpointed per matchup batch
-so a killed process can resume without regenerating data.
+Architecture: 128-64 (proven), lr=2e-4 (proven).
 """
 from __future__ import annotations
 
@@ -25,7 +20,8 @@ import random
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BACKEND_DIR)
 
 import numpy as np
 from sklearn.neural_network import MLPClassifier
@@ -35,13 +31,13 @@ from sklearn.metrics import roc_auc_score, accuracy_score
 from app.engine.engine import start_new_deal, final_deal_scores
 from app.engine.turn_fsm import TurnPhase
 from app.bots.strategy import (
-    AdvancedBotStrategy, HeuristicBotStrategy, SequenceBotStrategy,
+    AdvancedBotStrategy, SequenceBotStrategy,
     EliteBotStrategy, FullPIMCBotStrategy,
     _fallback_move, _exec_intent,
 )
 from app.bots.value_model import extract_features, N_FEATURES, WEIGHTS_PATH
 
-CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_train_cache.npz")
+CACHE = os.path.join(BACKEND_DIR, "_train_cache.npz")
 
 
 def _run_matchup(strat_p0, strat_p2, strat_p1, strat_p3, n_games, seed):
@@ -114,8 +110,8 @@ def _export_mlp_classifier(model, scaler):
 
 
 def main():
-    print("=== Canasta Value Function Training v10 ===")
-    print("    Fix Advanced-matchup instability + diversify human-partner proxy")
+    print("=== Canasta Value Function Training v9 ===")
+    print("    Fix Sequence regression + human-partnership data")
     print()
 
     if not os.path.exists(CACHE):
@@ -131,7 +127,6 @@ def main():
         sys.exit(1)
 
     fp  = FullPIMCBotStrategy()
-    heu = HeuristicBotStrategy()
     seq = SequenceBotStrategy()
     eli = EliteBotStrategy()
     adv = AdvancedBotStrategy()
@@ -139,14 +134,14 @@ def main():
     CACHE_DIR = os.path.dirname(CACHE)
     matchups = [
         # (key, desc, p0, p2, p1, p3, n_games, seed)
-        ("fp_vs_adv",     "fullpimc vs advanced       ", fp,  fp,  adv, adv, 300, 201),
-        ("fpheu_vs_seq",  "[fp+heuristic] vs [seq+seq]", fp,  heu, seq, seq, 200, 202),
-        ("fpheu_vs_eli",  "[fp+heuristic] vs [eli+eli]", fp,  heu, eli, eli, 150, 203),
+        ("fp_vs_seq",     "fullpimc vs seq        ", fp,  fp,  seq, seq, 300, 101),
+        ("fpadv_vs_seq",  "[fp+adv] vs [seq+seq]  ", fp,  adv, seq, seq, 200, 102),
+        ("fpadv_vs_eli",  "[fp+adv] vs [eli+eli]  ", fp,  adv, eli, eli, 150, 103),
     ]
 
     new_X, new_y = [], []
     for key, desc, p0, p2, p1, p3, n, seed in matchups:
-        ckpt = os.path.join(CACHE_DIR, f"_v10_ckpt_{key}.npz")
+        ckpt = os.path.join(CACHE_DIR, f"_v9_ckpt_{key}.npz")
         if os.path.exists(ckpt):
             d = np.load(ckpt)
             cx, cy = d["X"].tolist(), d["y"].tolist()
