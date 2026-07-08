@@ -1,8 +1,10 @@
 import contextlib
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.redis_store import RedisGameStore
+from app.ws import router
 
 
 def _create_game(client: TestClient) -> dict:
@@ -64,8 +66,14 @@ def test_connect_with_invalid_token_is_rejected(client: TestClient) -> None:
 
 
 def test_start_game_flow_sends_personalized_game_state(
-    client: TestClient, redis_store: RedisGameStore
+    client: TestClient, redis_store: RedisGameStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # the very first deal's opener is randomized in production; pin it to
+    # the host (first seated) since that's what this test asserts below
+    monkeypatch.setattr(
+        router, "_pick_first_player", lambda player_order: player_order[0]
+    )
+
     game = _create_game(client)
     game_id = game["game_id"]
     host_id = game["player_id"]
@@ -129,12 +137,18 @@ def test_host_can_swap_occupied_seats(client: TestClient) -> None:
     ) as host_ws:
         host_ws.receive_json()
 
-        host_ws.send_json({"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}})
+        host_ws.send_json(
+            {"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}}
+        )
         host_ws.receive_json()
-        host_ws.send_json({"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 1}})
+        host_ws.send_json(
+            {"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 1}}
+        )
         host_ws.receive_json()
 
-        host_ws.send_json({"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 0}})
+        host_ws.send_json(
+            {"type": "assign_seat", "data": {"player_id": bob["player_id"], "seat": 0}}
+        )
         state = host_ws.receive_json()
 
     seats = {p["id"]: p["seat"] for p in state["data"]["players"]}

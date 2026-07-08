@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.redis_store import RedisGameStore
+from app.ws import router
 
 
 def create_game(client: TestClient, **overrides: object) -> dict:
@@ -33,7 +34,17 @@ def join_game(client: TestClient, game_id: str, name: str) -> dict:
 
 
 @pytest.fixture
-def started_game(client: TestClient, redis_store: RedisGameStore) -> Iterator[dict]:
+def started_game(
+    client: TestClient, redis_store: RedisGameStore, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[dict]:
+    # Production now randomizes who opens the very first deal; nearly every
+    # test built on this fixture assumes the host goes first (it's simply
+    # the first player seated below), so pin that back down here rather
+    # than touching every individual test.
+    monkeypatch.setattr(
+        router, "_pick_first_player", lambda player_order: player_order[0]
+    )
+
     game = create_game(client)
     game_id = game["game_id"]
     host_id = game["player_id"]

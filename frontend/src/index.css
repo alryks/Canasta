@@ -959,6 +959,14 @@ select.input:focus {
   gap: 0.2rem;
   min-height: 0;
   min-width: 0;
+  /* Without this, the grid row's automatic minimum size is based on this
+     item's full (unshrunk) content -- with many melds that "blows out" the
+     opp-melds/own-melds row past its minmax() cap and pushes it off-screen,
+     making the last few melds unreachable for drag/drop. `overflow: hidden`
+     on the grid item itself is what tells the grid to size the row from
+     minmax() instead of from content (see team-zone-fit's scroll below for
+     where the actual overflow then goes). */
+  overflow: hidden;
 }
 
 .team-zone.is-recent-action {
@@ -979,33 +987,43 @@ select.input:focus {
   min-height: 0;
   min-width: 0;
   width: 100%;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* useFitScale stops shrinking cards below its minScale floor -- past that
+     point the shell is deliberately taller than this box, and this scrolls
+     to it instead of clipping it away (a team with many canastas is
+     reachable by scrolling their strip, never stuck off-screen).
+     Alignment is done via margin-auto on the shell below rather than
+     align-items: flex-end/flex-start -- cross-axis alignment pushes
+     overflow toward the *start* edge for a bottom-aligned item, and start-
+     edge overflow in a scroll container sits above/behind scrollTop 0 with
+     no way to reach it. Margin-auto collapses to 0 once the shell is
+     taller than the box, so overflow always grows toward the reachable
+     end edge instead. */
   display: flex;
-  justify-content: center;
-}
-
-.team-zone-top .team-zone-fit {
-  align-items: flex-end;
-}
-
-.team-zone-bottom .team-zone-fit {
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
 }
 
 .team-zone-shell {
   display: flex;
+  /* Matches TeamZone's fixed top transform-origin: the strip is anchored
+     and clipped from the same edge it visually scales from, so the visible
+     slice is always the real (scaled) content instead of blank overshoot. */
+  align-items: flex-start;
   justify-content: center;
   width: 100%;
   max-width: 100%;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .team-zone-top .team-zone-shell {
-  align-items: flex-end;
+  margin-top: auto;
 }
 
 .team-zone-bottom .team-zone-shell {
-  align-items: flex-start;
+  margin-bottom: auto;
 }
 
 .team-zone-strip {
@@ -1274,16 +1292,40 @@ select.input:focus {
 
 .turn-banner {
   text-align: center;
-  padding: 0.25rem 0.5rem;
+  padding: 0.3rem 0.6rem;
   font-family: var(--font-display);
-  color: var(--gold-light);
+  color: var(--ink-dim);
   font-size: 0.92rem;
   margin: 0;
+  border-radius: 999px;
+  transition: background 0.25s ease;
+}
+
+.turn-banner-name {
+  display: inline-block;
+  font-size: 1.1em;
+  font-weight: 700;
+  color: var(--gold-light);
 }
 
 .turn-banner.is-my-turn {
   color: var(--gold-light);
   text-shadow: 0 0 10px rgba(232, 200, 119, 0.5);
+}
+
+.turn-banner.is-turn-handoff {
+  animation: turn-handoff-flash 0.9s ease-out;
+}
+
+@keyframes turn-handoff-flash {
+  0% {
+    background: rgba(232, 200, 119, 0.28);
+    box-shadow: 0 0 16px rgba(232, 200, 119, 0.4);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 /* ---------- Header / scores ---------- */

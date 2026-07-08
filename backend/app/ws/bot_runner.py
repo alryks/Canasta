@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +28,9 @@ from app.engine.serialization import game_state_to_dict
 from app.engine.turn_fsm import TurnPhase
 from app.redis_store import RedisGameStore
 
-BOT_MOVE_DELAY_SECONDS = 1.2  # cosmetic pause so a bot's turn doesn't feel instant
+# Cosmetic pause so a bot's turn doesn't feel instant -- randomized per move
+# instead of a fixed beat so a bot's whole turn doesn't read as a metronome.
+BOT_MOVE_DELAY_RANGE_SECONDS = (0.6, 2.0)
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ def _fallback_intent(deal: DealState, bot_id: str) -> tuple[str, dict]:
 
 
 async def _play_bot_step(game_id: str, bot_id: str) -> None:
-    await asyncio.sleep(BOT_MOVE_DELAY_SECONDS)
+    await asyncio.sleep(random.uniform(*BOT_MOVE_DELAY_RANGE_SECONDS))
 
     game_state = store.get_state(game_id)
     if game_state is None or game_state.current_deal is None:

@@ -4,6 +4,7 @@ phase 3 scope only -- draw/meld/discard intents land in phase 4).
 
 from __future__ import annotations
 
+import random
 import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -72,12 +73,26 @@ async def _lobby_state_message(session, game: Game) -> dict:
     )
 
 
+def _pick_first_player(player_order: list[str]) -> str:
+    """Broken out from _build_initial_game_state so tests can pin it down --
+    without this, start_new_deal defaults to player_order[0] -- i.e. the
+    game's very first turn always went to whoever sits in seat 0, which in
+    practice is always the host. Later deals already rotate the opener
+    (see game_intents.py); the first one should be just as random."""
+    return random.choice(player_order)
+
+
 def _build_initial_game_state(game: Game, players: list[Player]) -> GameState:
     seated = sorted(players, key=lambda p: p.seat)
     player_order = [p.id for p in seated]
     player_team = {p.id: p.team_id for p in seated}
     scores = {"A": 0, "B": 0}
-    deal = start_new_deal(player_order, player_team, scores)
+    deal = start_new_deal(
+        player_order,
+        player_team,
+        scores,
+        first_player_id=_pick_first_player(player_order),
+    )
 
     return GameState(
         game_id=game.id,
@@ -128,12 +143,52 @@ async def _handle_assign_seat(session, game: Game, sender: Player, data: dict) -
     target.team_id = _team_for_seat(seat)
     if displaced is not None:
         displaced.seat = previous_seat
-        displaced.team_id = _team_for_seat(previous_seat) if previous_seat in SEATS else None
+        displaced.team_id = (
+            _team_for_seat(previous_seat) if previous_seat in SEATS else None
+        )
     await session.commit()
     await manager.broadcast(game.id, await _lobby_state_message(session, game))
 
 
 BOT_NAME_TEMPLATE = "Бот {seat}"
+
+# Human-sounding nicknames instead of "Бот N" -- picked randomly per bot and
+# kept unique within a game so two bots at the same table never collide.
+BOT_NAME_POOL = [
+    "Alex",
+    "Jordan",
+    "Sam",
+    "Riley",
+    "Casey",
+    "Morgan",
+    "Taylor",
+    "Jamie",
+    "Drew",
+    "Quinn",
+    "Avery",
+    "Skyler",
+    "Reese",
+    "Cameron",
+    "Dakota",
+    "Rowan",
+    "Blake",
+    "Charlie",
+    "Emerson",
+    "Finley",
+    "Harper",
+    "Kendall",
+    "Logan",
+    "Parker",
+    "Peyton",
+    "Sawyer",
+]
+
+
+def _random_bot_name(taken: set[str]) -> str:
+    available = [name for name in BOT_NAME_POOL if name not in taken]
+    if available:
+        return random.choice(available)
+    return BOT_NAME_TEMPLATE.format(seat=len(taken) + 1)
 
 
 async def _handle_add_bot(session, game: Game, sender: Player, data: dict) -> None:
@@ -157,9 +212,15 @@ async def _handle_add_bot(session, game: Game, sender: Player, data: dict) -> No
     if others:
         raise LobbyActionError(f"seat {seat} is already taken")
 
+    taken_names = set(
+        (
+            await session.scalars(select(Player.name).where(Player.game_id == game.id))
+        ).all()
+    )
+
     bot = Player(
         game_id=game.id,
-        name=BOT_NAME_TEMPLATE.format(seat=seat + 1),
+        name=_random_bot_name(taken_names),
         # never used to open a socket, but the column is unique + non-null
         session_token=secrets.token_urlsafe(24),
         seat=seat,

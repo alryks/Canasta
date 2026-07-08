@@ -8,13 +8,17 @@ interface FitLayout {
 interface UseFitScaleOptions {
   transformOrigin: string
   enabled?: boolean
+  // Below this scale, cards become too small to read or hit as drag/drop
+  // targets -- stop shrinking and let the shell grow past its box instead,
+  // so the (now auto-scrolling) fit container handles the rest.
+  minScale?: number
 }
 
 export function useFitScale(
   containerRef: RefObject<HTMLElement | null>,
   contentRef: RefObject<HTMLElement | null>,
   deps: unknown[],
-  { transformOrigin, enabled = true }: UseFitScaleOptions,
+  { transformOrigin, enabled = true, minScale = 1 }: UseFitScaleOptions,
 ): { shellStyle: CSSProperties; contentStyle: CSSProperties } {
   const [layout, setLayout] = useState<FitLayout>({ scale: 1, shellHeight: 0 })
 
@@ -38,10 +42,11 @@ export function useFitScale(
 
       const width = container.clientWidth
       const height = container.clientHeight
-      const scale =
+      const rawScale =
         width === 0 || height === 0
           ? 1
           : Math.min(1, width / contentWidth, height / contentHeight)
+      const scale = Math.max(minScale, rawScale)
 
       setLayout({
         scale,
@@ -54,7 +59,7 @@ export function useFitScale(
     observer.observe(container)
     observer.observe(content)
     return () => observer.disconnect()
-  }, [containerRef, contentRef, enabled, ...deps])
+  }, [containerRef, contentRef, enabled, minScale, ...deps])
 
   const contentStyle: CSSProperties =
     layout.scale < 1

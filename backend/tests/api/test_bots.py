@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.redis_store import RedisGameStore
-from app.ws import bot_runner
+from app.ws import bot_runner, router
 from tests.api.conftest import create_game, join_game
 
 
@@ -73,11 +73,17 @@ def test_add_bot_rejected_for_taken_seat(client: TestClient) -> None:
 
 
 def _connect_and_start(
-    client: TestClient, redis_store: RedisGameStore
+    client: TestClient, redis_store: RedisGameStore, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[dict, dict]:
     """Host (seat 0) + Bob (seat 2) are real players; bots sit at 1 and 3 --
     so the turn order (seat 0->1->2->3) hands off to a bot immediately after
     the host's first discard."""
+    # the very first deal's opener is randomized in production; pin it to
+    # the host so this test's fixed seat-rotation narrative holds
+    monkeypatch.setattr(
+        router, "_pick_first_player", lambda player_order: player_order[0]
+    )
+
     game = create_game(client)
     game_id = game["game_id"]
     host_id = game["player_id"]
@@ -92,7 +98,9 @@ def _connect_and_start(
         )
         host_ws.receive_json()
         bob_ws = stack.enter_context(
-            client.websocket_connect(f"/ws/games/{game_id}?token={bob['session_token']}")
+            client.websocket_connect(
+                f"/ws/games/{game_id}?token={bob['session_token']}"
+            )
         )
         host_ws.receive_json()
         bob_ws.receive_json()
@@ -104,8 +112,12 @@ def _connect_and_start(
             states = {pid: s.receive_json() for pid, s in sockets.items()}
             return states[sender_id]
 
-        _send_and_drain(host_id, {"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}})
-        _send_and_drain(host_id, {"type": "assign_seat", "data": {"player_id": bob_id, "seat": 2}})
+        _send_and_drain(
+            host_id, {"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}}
+        )
+        _send_and_drain(
+            host_id, {"type": "assign_seat", "data": {"player_id": bob_id, "seat": 2}}
+        )
         _send_and_drain(host_id, {"type": "add_bot", "data": {"seat": 1}})
         _send_and_drain(host_id, {"type": "add_bot", "data": {"seat": 3}})
 
@@ -139,15 +151,19 @@ def _connect_and_start(
                 break
         else:
             raise AssertionError("bot never finished its turn")
-        return states, {"host_id": host_id, "bob_id": bob_id, "bot_seat1_id": bot_seat1_id}
+        return states, {
+            "host_id": host_id,
+            "bob_id": bob_id,
+            "bot_seat1_id": bot_seat1_id,
+        }
 
 
 def test_bot_auto_plays_its_turn_without_any_bot_intent(
     client: TestClient, redis_store: RedisGameStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(bot_runner, "BOT_MOVE_DELAY_SECONDS", 0.01)
+    monkeypatch.setattr(bot_runner, "BOT_MOVE_DELAY_RANGE_SECONDS", (0.01, 0.01))
 
-    after_bot_turn, ids = _connect_and_start(client, redis_store)
+    after_bot_turn, ids = _connect_and_start(client, redis_store, monkeypatch)
 
     assert after_bot_turn[ids["host_id"]]["data"]["turn_player_id"] == ids["bob_id"]
     assert after_bot_turn[ids["host_id"]]["data"]["turn_phase"] == "DRAW"
@@ -160,6 +176,12 @@ def test_host_can_force_skip_a_stuck_bot_without_a_timeout(
     # entirely once the turn reaches it -- the host must still be able to
     # force the game forward.
     monkeypatch.setattr(bot_runner, "maybe_schedule_bot_turn", _noop)
+    # the very first deal's opener is randomized in production; pin it to
+    # the host so the host's own draw+discard below reliably hands the turn
+    # to a bot next
+    monkeypatch.setattr(
+        router, "_pick_first_player", lambda player_order: player_order[0]
+    )
 
     game = create_game(client)
     game_id = game["game_id"]
@@ -169,7 +191,9 @@ def test_host_can_force_skip_a_stuck_bot_without_a_timeout(
         f"/ws/games/{game_id}?token={game['host_session_token']}"
     ) as host_ws:
         host_ws.receive_json()
-        host_ws.send_json({"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}})
+        host_ws.send_json(
+            {"type": "assign_seat", "data": {"player_id": host_id, "seat": 0}}
+        )
         host_ws.receive_json()
         host_ws.send_json({"type": "add_bot", "data": {"seat": 1}})
         host_ws.receive_json()

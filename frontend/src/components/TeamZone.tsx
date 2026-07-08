@@ -33,12 +33,16 @@ export function TeamZone({
 }: TeamZoneProps) {
   const fitRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
-  const { shellStyle, contentStyle } = useFitScale(
-    fitRef,
-    stripRef,
-    [melds],
-    { transformOrigin: isOwnTeam ? 'bottom center' : 'top center' },
-  )
+  // Always anchored top: the shell clips/aligns its (possibly taller than
+  // itself) strip child from the top too (see .team-zone-shell), so the
+  // scaled-down visual content and the clipped/visible slice agree on which
+  // edge is "pinned". Anchoring this at the bottom for the own-team zone
+  // used to fight that clip, hiding the real content behind blank space
+  // once scaling was strong enough for the mismatch to show.
+  const { shellStyle, contentStyle } = useFitScale(fitRef, stripRef, [melds], {
+    transformOrigin: 'top center',
+    minScale: 0.62,
+  })
 
   return (
     <div
