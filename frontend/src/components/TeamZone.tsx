@@ -17,6 +17,7 @@ interface TeamZoneProps {
   stealTarget: StealTarget | null
   highlightedTeamId?: string | null
   highlightedCardIds?: string[]
+  highlightedMeldId?: string | null
   onSelectStealTarget: (meldId: string, cardId: string) => void
 }
 
@@ -29,6 +30,7 @@ export function TeamZone({
   stealTarget,
   highlightedTeamId,
   highlightedCardIds = [],
+  highlightedMeldId,
   onSelectStealTarget,
 }: TeamZoneProps) {
   const fitRef = useRef<HTMLDivElement>(null)
@@ -47,12 +49,13 @@ export function TeamZone({
   return (
     <div
       aria-label={`melds-${teamId}`}
+      data-team-id={teamId}
       className={`team-zone ${isOwnTeam ? 'team-zone-bottom' : 'team-zone-top'}${
         highlightedTeamId === teamId ? ' is-recent-action' : ''
       }`}
     >
       <h3 className="team-zone-title">
-        {isOwnTeam ? 'Ваши комбинации' : `Соперники · команда ${teamId}`}
+        {isOwnTeam ? 'Ваши комбинации' : 'Комбинации соперников'}
       </h3>
       <div className="team-zone-fit" ref={fitRef}>
         {melds.length > 0 && (
@@ -67,6 +70,7 @@ export function TeamZone({
                       canDragAdd={canDragAdd}
                       canStealFrom={canStealFrom}
                       highlightedCardIds={highlightedCardIds}
+                      isRecentAction={highlightedMeldId === meld.id}
                       isStealTarget={(cardId) =>
                         stealTarget?.meldId === meld.id && stealTarget.wildCardId === cardId
                       }

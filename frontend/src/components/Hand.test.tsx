@@ -29,7 +29,7 @@ describe('Hand', () => {
 
     expect(screen.getByText('7♥')).toBeInTheDocument()
     expect(screen.getByText('JOKER')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('2 карты')).toBeInTheDocument()
   })
 
   it('marks selected cards as pressed', () => {
@@ -64,5 +64,38 @@ describe('Hand', () => {
 
     await userEvent.click(screen.getByRole('switch', { name: 'Автосортировка' }))
     expect(onToggleAutoSort).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses a pulsing turn state only while waiting for a draw', () => {
+    const { rerender } = renderHand({ isMyTurn: true, isAwaitingDraw: true })
+    const hand = screen.getByLabelText('hand-area')
+
+    expect(hand).toHaveClass('is-my-turn', 'is-awaiting-draw')
+
+    rerender(
+      <Hand
+        cards={cards}
+        selectedIds={[]}
+        isMyTurn
+        isAwaitingDraw={false}
+        autoSort={false}
+        onToggleAutoSort={vi.fn()}
+        onToggleCard={vi.fn()}
+        onCardDrop={vi.fn()}
+      />,
+    )
+    expect(hand).toHaveClass('is-my-turn')
+    expect(hand).not.toHaveClass('is-awaiting-draw')
+  })
+
+  it('acknowledges each received card when it is first hovered', async () => {
+    const onAcknowledgeNewCard = vi.fn()
+    renderHand({ newCardIds: ['c1'], onAcknowledgeNewCard })
+
+    const card = screen.getByRole('button', { name: '7♥' })
+    expect(card.querySelector('.playing-card')).toHaveClass('is-received-card')
+
+    await userEvent.hover(card)
+    expect(onAcknowledgeNewCard).toHaveBeenCalledWith('c1')
   })
 })

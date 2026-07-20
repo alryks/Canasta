@@ -122,6 +122,7 @@ describe('MeldStack', () => {
     expect(screen.getByText('×7')).toBeInTheDocument()
     expect(screen.getByText('Грязная канаста')).toBeInTheDocument()
     expect(screen.queryByText('K♥')).not.toBeInTheDocument()
+    expect(screen.queryByText('10 очков')).not.toBeInTheDocument()
   })
 
   it('expands a collapsed canasta on click and lets it collapse back', async () => {
@@ -135,9 +136,7 @@ describe('MeldStack', () => {
       />,
     )
 
-    await userEvent.click(
-      screen.getByRole('button', { name: /показать карты/i }),
-    )
+    await userEvent.click(screen.getByRole('button', { name: /показать карты/i }))
     // all cards visible, wild is a steal target
     expect(screen.getAllByText('K♥')).toHaveLength(2)
     expect(screen.getByRole('button', { name: '2♥' })).toBeInTheDocument()
@@ -173,8 +172,9 @@ describe('MeldStack', () => {
       />,
     )
 
-    expect(
-      screen.getByRole('button', { name: /показать карты/i }),
-    ).toHaveAttribute('data-drop-zone', 'wild:m3:w2')
+    expect(screen.getByRole('button', { name: /показать карты/i })).toHaveAttribute(
+      'data-drop-zone',
+      'wild:m3:w2',
+    )
   })
 })

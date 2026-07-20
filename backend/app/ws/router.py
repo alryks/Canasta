@@ -334,6 +334,10 @@ async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) ->
         if game_state is None or game_state.current_deal is None:
             raise LobbyActionError("no active deal")
         current_player_id = game_state.current_deal.turn_state.current_player_id
+        skipped_team_id = game_state.current_deal.player_team[current_player_id]
+        threshold_before = game_state.current_deal.teams[
+            skipped_team_id
+        ].turn_accumulator
         current_player = await session.get(Player, current_player_id)
         # A bot never disconnects, so its turn timer never arms -- if a bot
         # ever gets stuck (a strategy bug), the host still needs a way to
@@ -344,11 +348,33 @@ async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) ->
             raise LobbyActionError("turn timer has not expired for the current player")
 
         force_skip_turn(game_state.current_deal, current_player_id)
+        action_event = {
+            "action": "skip_turn_with_penalty",
+            "actor_id": current_player_id,
+            "team_id": skipped_team_id,
+            "phase_after": game_state.current_deal.turn_state.phase.value,
+            "turn_player_after": game_state.current_deal.turn_state.current_player_id,
+            "meld_id": None,
+            "cards": [],
+            "drawn_cards": [],
+            "draw_count": 0,
+            "discard_count_before": len(game_state.current_deal.discard_pile),
+            "team_opened": False,
+            "threshold_before": threshold_before,
+            "threshold_after": game_state.current_deal.teams[
+                skipped_team_id
+            ].turn_accumulator,
+            "penalty_delta": -1000,
+            "canasta_completed": False,
+            "deal_completed": False,
+            "exit_type": None,
+        }
         store.set_state(game.id, game_state)
 
     turn_timer.cancel_for_player(game.id, current_player_id)
     await manager.broadcast_personalized(
-        game.id, lambda pid: build_client_game_state(game_state, pid)
+        game.id,
+        lambda pid: build_client_game_state(game_state, pid, action_event),
     )
     await _maybe_arm_turn_timer(session, game, game_state)
     await bot_runner.maybe_schedule_bot_turn(session, game, game_state)
@@ -371,12 +397,16 @@ async def _handle_game_intent(
 
     if not result.deal_completed:
         await manager.broadcast_personalized(
-            game.id, lambda pid: build_client_game_state(result.game_state, pid)
+            game.id,
+            lambda pid: build_client_game_state(
+                result.game_state, pid, result.action_event
+            ),
         )
         await _maybe_arm_turn_timer(session, game, result.game_state)
         await bot_runner.maybe_schedule_bot_turn(session, game, result.game_state)
         return
 
+    result.deal_result_message["data"]["last_action"] = result.action_event
     await manager.broadcast(game.id, result.deal_result_message)
     if result.winner_team_id is not None:
         await manager.broadcast(

@@ -53,7 +53,7 @@ describe('TeamZone', () => {
       />,
     )
 
-    expect(screen.getByText('Соперники · команда B')).toBeInTheDocument()
+    expect(screen.getByText('Комбинации соперников')).toBeInTheDocument()
     expect(screen.queryByText('Стол пуст')).not.toBeInTheDocument()
   })
 

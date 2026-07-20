@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import {
@@ -9,7 +8,6 @@ import {
   SEQUENCE_RANKS,
   suitSymbol,
 } from '../lib/cards'
-import { CARD_ENTER_FROM, CARD_ENTER_TO, CARD_FLIGHT_TRANSITION, cardLayoutId } from '../lib/cardMotion'
 import { meldCardOverlapPx } from '../lib/meldLayout'
 import type { Card, Meld } from '../lib/protocol'
 import { useDragStore } from '../stores/dragStore'
@@ -21,6 +19,7 @@ interface MeldStackProps {
   canDragAdd?: boolean
   canStealFrom: boolean
   highlightedCardIds?: string[]
+  isRecentAction?: boolean
   isStealTarget: (cardId: string) => boolean
   onSelectStealTarget: (cardId: string) => void
 }
@@ -60,6 +59,7 @@ export function MeldStack({
   canDragAdd = false,
   canStealFrom,
   highlightedCardIds = [],
+  isRecentAction = false,
   isStealTarget,
   onSelectStealTarget,
 }: MeldStackProps) {
@@ -77,11 +77,8 @@ export function MeldStack({
     (c) => canStealFrom && meld.kind !== 'WILD_CANASTA' && isWildRank(c.rank),
   )
   const collapsedStealZone =
-    stealableWilds.length === 1
-      ? `wild:${meld.id}:${stealableWilds[0].id}`
-      : null
-  const isCollapsedStealTarget =
-    collapsedStealZone !== null && hoveredZone === collapsedStealZone
+    stealableWilds.length === 1 ? `wild:${meld.id}:${stealableWilds[0].id}` : null
+  const isCollapsedStealTarget = collapsedStealZone !== null && hoveredZone === collapsedStealZone
   const collapsed = isClosedCanasta && !manuallyExpanded
 
   if (collapsed) {
@@ -91,6 +88,8 @@ export function MeldStack({
         aria-label={`meld-${meld.id}`}
         className={`meld-stack is-collapsed status-${status}${
           isCollapsedStealTarget ? ' is-drop-target' : ''
+        }${isRecentAction ? ' is-recent-action' : ''}${
+          isRecentAction && isClosedCanasta ? ' is-new-canasta' : ''
         }`}
       >
         <button
@@ -104,28 +103,20 @@ export function MeldStack({
           <span className="canasta-pile">
             <PlayingCard faceDown size="small" />
             <PlayingCard faceDown size="small" />
-            <motion.span
-              layout
-              layoutId={cardLayoutId(topCard.id)}
-              initial={CARD_ENTER_FROM}
-              animate={CARD_ENTER_TO}
-              transition={CARD_FLIGHT_TRANSITION}
-              style={{ display: 'inline-block' }}
-            >
+            <span className="canasta-top-card">
               <PlayingCard
                 card={topCard}
                 size="small"
+                showPoints={false}
                 className={highlightedCards.has(topCard.id) ? 'is-new-card' : ''}
                 ariaLabel={cardLabel(topCard)}
               />
-            </motion.span>
+            </span>
             <span className="canasta-count">×{cards.length}</span>
           </span>
         </button>
         <span className="meld-caption">
-          <span className={`meld-status-badge status-${status}`}>
-            {STATUS_LABELS[status]}
-          </span>
+          <span className={`meld-status-badge status-${status}`}>{STATUS_LABELS[status]}</span>
         </span>
       </div>
     )
@@ -134,25 +125,17 @@ export function MeldStack({
   return (
     <div
       aria-label={`meld-${meld.id}`}
-      className={`meld-stack status-${status}${isDropTarget ? ' is-drop-target' : ''}`}
+      className={`meld-stack status-${status}${isDropTarget ? ' is-drop-target' : ''}${
+        isRecentAction ? ' is-recent-action' : ''
+      }`}
       data-drop-zone={isOwnTeam && canDragAdd ? dropZoneId : undefined}
     >
-      <ul
-        className="meld-cards"
-        style={{ '--meld-overlap': `${meldOverlap}px` } as CSSProperties}
-      >
+      <ul className="meld-cards" style={{ '--meld-overlap': `${meldOverlap}px` } as CSSProperties}>
         {cards.map((card) => {
           const stealable = canStealFrom && isWildRank(card.rank)
           return (
             <li key={card.id}>
-              <motion.span
-                layout
-                layoutId={cardLayoutId(card.id)}
-                initial={CARD_ENTER_FROM}
-                animate={CARD_ENTER_TO}
-                transition={CARD_FLIGHT_TRANSITION}
-                style={{ display: 'inline-block' }}
-              >
+              <span className="meld-card-wrap">
                 {stealable ? (
                   <PlayingCard
                     card={card}
@@ -161,8 +144,7 @@ export function MeldStack({
                     className={highlightedCards.has(card.id) ? 'is-new-card' : ''}
                     pressed={isStealTarget(card.id)}
                     selected={
-                      isStealTarget(card.id) ||
-                      hoveredZone === `wild:${meld.id}:${card.id}`
+                      isStealTarget(card.id) || hoveredZone === `wild:${meld.id}:${card.id}`
                     }
                     onClick={() => onSelectStealTarget(card.id)}
                     dropZone={`wild:${meld.id}:${card.id}`}
@@ -176,7 +158,7 @@ export function MeldStack({
                     ariaLabel={cardLabel(card)}
                   />
                 )}
-              </motion.span>
+              </span>
             </li>
           )
         })}
@@ -185,9 +167,7 @@ export function MeldStack({
         <span className="meld-caption-text">{meldCaption(meld, cards)}</span>
         {isClosedCanasta && (
           <>
-            <span className={`meld-status-badge status-${status}`}>
-              {STATUS_LABELS[status]}
-            </span>
+            <span className={`meld-status-badge status-${status}`}>{STATUS_LABELS[status]}</span>
             <button
               type="button"
               className="canasta-collapse-btn"
@@ -200,7 +180,6 @@ export function MeldStack({
           </>
         )}
       </span>
-
     </div>
   )
 }

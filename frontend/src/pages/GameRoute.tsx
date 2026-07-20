@@ -12,9 +12,12 @@ import {
   isTurnTimerExpiredMessage,
 } from '../lib/protocol'
 import { isOpeningThresholdRollback, translateActionError } from '../lib/errors'
+import { resetCardOrigins } from '../lib/actionOrigins'
 import { loadSession } from '../lib/session'
 import { diffGameStates } from '../lib/gameStateDiff'
+import { gameActionToUiEvent } from '../lib/gameAction'
 import { useChatStore } from '../stores/chatStore'
+import { useActionPlaybackStore } from '../stores/actionPlaybackStore'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useEventLogStore } from '../stores/eventLogStore'
 import { useGameFeedbackStore } from '../stores/gameFeedbackStore'
@@ -43,7 +46,10 @@ export function GameRoute() {
   const addChatMessage = useChatStore((s) => s.addMessage)
   const addLogEntry = useEventLogStore((s) => s.addEntry)
   const publishFeedback = useGameFeedbackStore((s) => s.publish)
+  const enqueueAction = useActionPlaybackStore((s) => s.enqueue)
+  const resetActionPlayback = useActionPlaybackStore((s) => s.reset)
   const [started, setStarted] = useState(false)
+  const [lobbyStatus, setLobbyStatus] = useState<string | null>(null)
 
   useEffect(() => {
     const session = loadSession(gameId)
@@ -59,7 +65,8 @@ export function GameRoute() {
     // once over REST regardless; a lobby_state over WS (if any) simply
     // overwrites it later with live data.
     getLobby(gameId)
-      .then((lobby) =>
+      .then((lobby) => {
+        setLobbyStatus(lobby.status)
         applyLobbyState({
           players: lobby.players,
           host_id: lobby.host_id,
@@ -67,8 +74,8 @@ export function GameRoute() {
             target_score: lobby.target_score,
             discard_visibility: lobby.discard_visibility,
           },
-        }),
-      )
+        })
+      })
       .catch(() => {})
 
     connect(gameId, session.playerId, session.sessionToken, (message) => {
@@ -79,21 +86,35 @@ export function GameRoute() {
         const playerNames = Object.fromEntries(
           useLobbyStore.getState().players.map((p) => [p.id, p.name]),
         )
-        const { events, newCardIds } = diffGameStates(previousGameState, message.data, {
+        const inferred = diffGameStates(previousGameState, message.data, {
           viewerId: session.playerId,
           playerNames,
         })
-        for (const event of events) addLogEntry(event.text)
-        publishFeedback(events.find((event) => event.type !== 'turn') ?? events.at(-1) ?? null, newCardIds)
-        setStarted(true)
+        const structuredEvent = message.data.last_action
+          ? gameActionToUiEvent(message.data.last_action, session.playerId, playerNames)
+          : null
+        const events = structuredEvent ? [structuredEvent] : inferred.events
+        const newCardIds =
+          message.data.last_action?.actor_id === session.playerId
+            ? message.data.last_action.drawn_cards.map((card) => card.id)
+            : inferred.newCardIds
         applyGameState(message.data)
+        if (message.data.last_action) enqueueAction(message.data.last_action)
+        for (const event of events) addLogEntry(event.text)
+        publishFeedback(
+          events.find((event) => event.type !== 'turn') ?? events.at(-1) ?? null,
+          newCardIds,
+        )
+        setStarted(true)
       } else if (isDealResultMessage(message)) {
+        if (message.data.last_action) enqueueAction(message.data.last_action)
         applyDealResult(message.data)
         addLogEntry(`Сдача №${message.data.deal_number} завершена`)
       } else if (isGameOverMessage(message)) {
         applyGameOver(message.data.winner_team)
         addLogEntry(`Игра окончена — победила команда ${message.data.winner_team}`)
       } else if (isActionErrorMessage(message)) {
+        resetCardOrigins()
         applyActionError(message.data.reason)
         if (isOpeningThresholdRollback(message.data.reason)) {
           const text = translateActionError(message.data.reason)
@@ -112,9 +133,7 @@ export function GameRoute() {
       } else if (isChatMessageMessage(message)) {
         addChatMessage(message.data)
       } else if (isPlayerConnectionMessage(message)) {
-        const player = useLobbyStore
-          .getState()
-          .players.find((p) => p.id === message.data.player_id)
+        const player = useLobbyStore.getState().players.find((p) => p.id === message.data.player_id)
         const name = player?.name ?? message.data.player_id
         addLogEntry(`${name} ${message.data.connected ? 'подключился' : 'отключился'}`)
         setPlayerConnected(message.data.player_id, message.data.connected)
@@ -124,9 +143,13 @@ export function GameRoute() {
       }
     })
 
-    return () => disconnect()
+    return () => {
+      disconnect()
+      resetCardOrigins()
+      resetActionPlayback()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId])
 
-  return started ? <GamePage /> : <LobbyPage />
+  return started ? <GamePage /> : <LobbyPage devBootstrapAllowed={lobbyStatus === 'LOBBY'} />
 }

@@ -113,7 +113,96 @@ describe('GamePage', () => {
     expect(screen.getByText('7♥')).toBeInTheDocument()
     expect(screen.getByText('7♣')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
-    expect(screen.getByText(/Колода · 40/)).toBeInTheDocument()
+    expect(screen.getByText('Колода')).toBeInTheDocument()
+    expect(screen.getByText('40 карт')).toBeInTheDocument()
+  })
+
+  it('shows turn state on the table without a text banner', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        turn_phase: 'DRAW',
+        discard_pile: [{ id: 'd1', rank: '9', suit: 'CLUBS' }],
+        discard_count: 1,
+      }),
+    )
+    const { container } = render(<GamePage />)
+
+    expect(screen.queryByText(/Ваш ход|Ходит /)).not.toBeInTheDocument()
+    expect(screen.getByLabelText('hand-area')).toHaveClass(
+      'is-my-turn',
+      'is-awaiting-draw',
+    )
+    expect(container.querySelector('.pile:not(.discard-pile)')).toHaveClass(
+      'is-actionable',
+    )
+    expect(container.querySelector('.discard-pile')).toHaveClass('is-actionable')
+  })
+
+  it('keeps the current opponent highlight static after their draw', () => {
+    useGameStore
+      .getState()
+      .applyGameState(baseGameState({ turn_player_id: 'p2', turn_phase: 'ACT' }))
+    render(<GamePage />)
+
+    const playerTag = screen.getByText('Bob').closest('.seat-name-tag')
+    expect(playerTag).toHaveClass('is-turn')
+    expect(playerTag).not.toHaveClass('is-awaiting-draw')
+  })
+
+  it('places action errors inside the game playfield', () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    useGameStore.getState().applyActionError('it is not your turn')
+    const { container } = render(<GamePage />)
+
+    const playfield = container.querySelector('.game-playfield')
+    expect(playfield).not.toBeNull()
+    expect(within(playfield as HTMLElement).getByRole('alert')).toBeInTheDocument()
+  })
+
+  it('marks the partner and opponents with relation icons', () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    render(<GamePage />)
+
+    expect(screen.getByRole('img', { name: 'Напарник' })).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Соперник' })).toHaveLength(2)
+  })
+
+  it('renders player, deck, and discard piles with one to three visible cards', () => {
+    useGameStore.getState().applyGameState(
+      baseGameState({
+        hands: {
+          p1: [{ id: 'c1', rank: '7', suit: 'HEARTS' }],
+          p2: 1,
+          p3: 2,
+          p4: 8,
+        },
+        deck_count: 2,
+        discard_pile: [{ id: 'd1', rank: '9', suit: 'CLUBS' }],
+        discard_count: 7,
+      }),
+    )
+    const { container } = render(<GamePage />)
+
+    expect(container.querySelector('[data-player-id="p2"]')).toHaveAttribute(
+      'data-stack-depth',
+      '1',
+    )
+    expect(container.querySelector('[data-player-id="p3"]')).toHaveAttribute(
+      'data-stack-depth',
+      '2',
+    )
+    expect(container.querySelector('[data-player-id="p4"]')).toHaveAttribute(
+      'data-stack-depth',
+      '3',
+    )
+    expect(container.querySelector('[data-card-stack="deck"]')).toHaveAttribute(
+      'data-stack-depth',
+      '2',
+    )
+    expect(container.querySelector('[data-card-stack="discard"]')).toHaveAttribute(
+      'data-stack-depth',
+      '3',
+    )
   })
 
   it('sends draw_deck when drawing during the DRAW phase on my turn', async () => {
@@ -282,7 +371,18 @@ describe('GamePage', () => {
       .applyGameState(baseGameState({ turn_accumulator: { A: 15, B: 0 } }))
     render(<GamePage />)
 
-    expect(screen.getByLabelText('threshold-A')).toHaveTextContent('15/50')
+    const handArea = screen.getByLabelText('hand-area')
+    const threshold = within(handArea).getByLabelText('threshold-A')
+    expect(threshold).toHaveTextContent('Выход: 15 из 50 очков')
+  })
+
+  it('shows card prices in hover tooltips', () => {
+    useGameStore.getState().applyGameState(baseGameState())
+    render(<GamePage />)
+
+    const card = screen.getByRole('button', { name: '7♥' })
+    expect(within(card).getByText('5 очков')).toBeInTheDocument()
+    expect(card).not.toHaveAttribute('title')
   })
 
   it("hides the threshold indicator once the viewer's team is opened", () => {
@@ -327,17 +427,17 @@ describe('GamePage', () => {
     expect(send).toHaveBeenCalledWith('discard', { card_id: 'c1' })
   })
 
-  it('shows the winner once the game is over and hides interactive controls', () => {
+  it('shows the winner once the game is over and hides interactive controls', async () => {
     useGameStore.getState().applyGameState(baseGameState({ scores: { A: 5200, B: 1100 } }))
     useGameStore.getState().applyGameOver('A')
     render(<GamePage />)
 
-    expect(screen.getByText(/Игра окончена/)).toBeInTheDocument()
+    expect(await screen.findByText(/Игра окончена/)).toBeInTheDocument()
     expect(screen.getByText(/Победила команда A/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Новая комбинация/ })).not.toBeInTheDocument()
   })
 
-  it('prefers the final deal result scores over the possibly stale game_state scores', () => {
+  it('prefers the final deal result scores over the possibly stale game_state scores', async () => {
     useGameStore.getState().applyGameState(baseGameState({ scores: { A: 4200, B: 1100 } }))
     useGameStore.getState().applyDealResult({
       deal_number: 5,
@@ -357,7 +457,7 @@ describe('GamePage', () => {
     useGameStore.getState().applyGameOver('A')
     render(<GamePage />)
 
-    const finalScores = screen.getByLabelText('final-scores')
+    const finalScores = await screen.findByLabelText('final-scores')
     expect(finalScores).toHaveTextContent('Команда A: 5200')
   })
 
@@ -380,7 +480,7 @@ describe('GamePage', () => {
     })
     render(<GamePage />)
 
-    expect(screen.getByText('Сдача №1 завершена')).toBeInTheDocument()
+    expect(await screen.findByText('Сдача №1 завершена')).toBeInTheDocument()
     await userEvent.click(screen.getByText('Продолжить'))
     expect(screen.queryByText('Сдача №1 завершена')).not.toBeInTheDocument()
   })
