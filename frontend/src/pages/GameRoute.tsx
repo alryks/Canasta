@@ -49,7 +49,6 @@ export function GameRoute() {
   const enqueueAction = useActionPlaybackStore((s) => s.enqueue)
   const resetActionPlayback = useActionPlaybackStore((s) => s.reset)
   const [started, setStarted] = useState(false)
-  const [lobbyStatus, setLobbyStatus] = useState<string | null>(null)
 
   useEffect(() => {
     const session = loadSession(gameId)
@@ -66,7 +65,6 @@ export function GameRoute() {
     // overwrites it later with live data.
     getLobby(gameId)
       .then((lobby) => {
-        setLobbyStatus(lobby.status)
         applyLobbyState({
           players: lobby.players,
           host_id: lobby.host_id,
@@ -151,5 +149,5 @@ export function GameRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId])
 
-  return started ? <GamePage /> : <LobbyPage devBootstrapAllowed={lobbyStatus === 'LOBBY'} />
+  return started ? <GamePage /> : <LobbyPage />
 }

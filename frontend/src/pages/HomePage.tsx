@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { createGame } from '../lib/api'
 import { saveSession } from '../lib/session'
 
 export function HomePage() {
   const navigate = useNavigate()
-  const [name, setName] = useState(import.meta.env.DEV ? 'Dev Player' : '')
+  const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const devGameStarted = useRef(false)
 
   async function createAndOpenGame(hostName: string) {
     setError(null)
@@ -26,14 +25,6 @@ export function HomePage() {
     }
   }
 
-  useEffect(() => {
-    if (!import.meta.env.DEV || devGameStarted.current) return
-    devGameStarted.current = true
-    void createAndOpenGame('Dev Player')
-    // This is an intentional one-shot development bootstrap.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     await createAndOpenGame(name)
@@ -43,11 +34,6 @@ export function HomePage() {
     <main className="page-shell">
       <div className="panel panel-narrow">
         <h1 className="brand-title">🃏 Канаста Online</h1>
-        {import.meta.env.DEV && submitting && (
-          <p className="status-line" role="status">
-            Запускаем dev-партию с ботами…
-          </p>
-        )}
         <form onSubmit={handleSubmit}>
           <div className="field">
             <label htmlFor="host-name">Ваше имя</label>
