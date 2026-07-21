@@ -13,7 +13,7 @@ import {
 } from '../lib/protocol'
 import { isOpeningThresholdRollback, translateActionError } from '../lib/errors'
 import { resetCardOrigins } from '../lib/actionOrigins'
-import { loadSession } from '../lib/session'
+import { loadSession, removeSession } from '../lib/session'
 import { diffGameStates } from '../lib/gameStateDiff'
 import { gameActionToUiEvent } from '../lib/gameAction'
 import { useChatStore } from '../stores/chatStore'
@@ -65,6 +65,12 @@ export function GameRoute() {
     // overwrites it later with live data.
     getLobby(gameId)
       .then((lobby) => {
+        if (!lobby.players.some((player) => player.id === session.playerId)) {
+          removeSession(gameId)
+          disconnect()
+          navigate('/', { replace: true })
+          return
+        }
         applyLobbyState({
           players: lobby.players,
           host_id: lobby.host_id,
@@ -78,6 +84,12 @@ export function GameRoute() {
 
     connect(gameId, session.playerId, session.sessionToken, (message) => {
       if (isLobbyStateMessage(message)) {
+        if (!message.data.players.some((player) => player.id === session.playerId)) {
+          removeSession(gameId)
+          disconnect()
+          navigate('/', { replace: true })
+          return
+        }
         applyLobbyState(message.data)
       } else if (isGameStateMessage(message)) {
         const previousGameState = useGameStore.getState().state

@@ -465,6 +465,7 @@ export function GamePage() {
       <div className="game-chrome">
         <GameHeader
           scores={gameState.scores}
+          thresholds={gameState.thresholds}
           targetScore={targetScore}
           viewerTeamId={viewerTeamId}
         />

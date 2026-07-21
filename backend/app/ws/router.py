@@ -8,7 +8,7 @@ import random
 import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.db.models import ChatMessage, Game, Player
 from app.db.session import async_session
@@ -232,6 +232,32 @@ async def _handle_add_bot(session, game: Game, sender: Player, data: dict) -> No
     await manager.broadcast(game.id, await _lobby_state_message(session, game))
 
 
+async def _handle_remove_player(
+    session, game: Game, sender: Player, data: dict
+) -> None:
+    if not sender.is_host:
+        raise LobbyActionError("only the host can remove players")
+    if game.status != "LOBBY":
+        raise LobbyActionError("game already started")
+
+    player_id = data.get("player_id")
+    target = await session.get(Player, player_id)
+    if target is None or target.game_id != game.id:
+        raise LobbyActionError(f"no such player {player_id!r}")
+    if target.is_host:
+        raise LobbyActionError("the host cannot be removed")
+
+    # Keep existing chat history while removing the participant row.
+    await session.execute(
+        update(ChatMessage)
+        .where(ChatMessage.player_id == target.id)
+        .values(player_id=None)
+    )
+    await session.delete(target)
+    await session.commit()
+    await manager.broadcast(game.id, await _lobby_state_message(session, game))
+
+
 async def _handle_set_lobby_settings(
     session, game: Game, sender: Player, data: dict
 ) -> None:
@@ -437,6 +463,8 @@ async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
                 await _handle_assign_seat(session, game, sender, data)
             elif intent == "add_bot":
                 await _handle_add_bot(session, game, sender, data)
+            elif intent == "remove_player":
+                await _handle_remove_player(session, game, sender, data)
             elif intent == "set_lobby_settings":
                 await _handle_set_lobby_settings(session, game, sender, data)
             elif intent == "start_game":

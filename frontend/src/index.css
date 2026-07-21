@@ -354,9 +354,51 @@ select.input:focus {
 
 .seat-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(140px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
   margin-bottom: 1.4rem;
+}
+
+.lobby-team {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid rgba(199, 171, 85, 0.28);
+  border-radius: var(--radius-panel);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.lobby-team.is-viewer-team {
+  border-color: rgba(224, 188, 78, 0.72);
+  background: rgba(185, 139, 38, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 224, 130, 0.09);
+}
+
+.lobby-team.is-opponent-team {
+  border-color: rgba(163, 126, 103, 0.42);
+}
+
+.lobby-team-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.1rem;
+  margin: 0 0 0.65rem;
+  color: var(--gold-light);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.lobby-team-title svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: none;
+  stroke-width: 1.8;
+}
+
+.lobby-team-seats {
+  display: grid;
+  gap: 0.55rem;
 }
 
 .seat-card {
@@ -373,14 +415,41 @@ select.input:focus {
   text-align: center;
 }
 
+.lobby-team.is-viewer-team .seat-card {
+  border-color: rgba(224, 188, 78, 0.42);
+}
+
+@media (max-width: 560px) {
+  .seat-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .seat-open-btn {
   width: 100%;
 }
 
 .seat-change-btn {
-  margin-top: 0.15rem;
   padding: 0.28rem 0.75rem;
   font-size: 0.76rem;
+}
+
+.seat-player-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.seat-remove-btn {
+  padding: 0.28rem 0.75rem;
+  color: var(--danger-light);
+  font-size: 0.76rem;
+}
+
+.seat-remove-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: rgba(167, 46, 46, 0.15);
 }
 
 .seat-free-label {
@@ -491,6 +560,9 @@ select.input:focus {
 }
 
 .unseated-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.82rem;
   padding: 0.3em 0.7em;
   border-radius: 999px;
@@ -1576,7 +1648,15 @@ select.input:focus {
 }
 
 .score-card-tooltip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
   top: calc(100% + 0.45rem);
+}
+
+.score-card-tooltip-threshold {
+  color: var(--gold-light);
 }
 
 .card-points-tooltip {
@@ -1615,20 +1695,23 @@ select.input:focus {
   width: min(100%, 1180px);
   padding: 0 0.35rem env(safe-area-inset-bottom, 0);
   min-height: 0;
-  border-radius: var(--radius-panel);
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-bottom: 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  box-shadow: 0 -2px 14px rgba(255, 255, 255, 0.2);
   pointer-events: auto;
   transform: translateY(calc(var(--hand-card-h) - 2.25rem));
   transition:
     transform 0.18s ease,
+    border-color 0.18s ease,
     box-shadow 0.18s ease,
     background 0.18s ease;
 }
 
 .hand-dock.is-my-turn {
+  border-color: rgba(232, 200, 119, 0.72);
   background: rgba(201, 160, 78, 0.08);
-  box-shadow:
-    inset 0 0 0 2px rgba(232, 200, 119, 0.72),
-    0 -8px 24px rgba(201, 160, 78, 0.22);
+  box-shadow: 0 -8px 24px rgba(201, 160, 78, 0.22);
 }
 
 .hand-dock.is-my-turn.is-awaiting-draw {
@@ -1648,31 +1731,27 @@ select.input:focus {
 @keyframes turn-attention-pulse {
   0%,
   100% {
+    border-color: rgba(232, 200, 119, 0.38);
     background: rgba(201, 160, 78, 0.06);
-    box-shadow:
-      inset 0 0 0 1px rgba(232, 200, 119, 0.38),
-      0 0 8px rgba(201, 160, 78, 0.18);
+    box-shadow: 0 -2px 8px rgba(201, 160, 78, 0.18);
   }
   50% {
+    border-color: rgba(232, 200, 119, 0.95);
     background: rgba(201, 160, 78, 0.18);
-    box-shadow:
-      inset 0 0 0 2px rgba(232, 200, 119, 0.95),
-      0 0 24px rgba(201, 160, 78, 0.52);
+    box-shadow: 0 -2px 24px rgba(201, 160, 78, 0.52);
   }
 }
 
 @keyframes hand-rollback-flash {
   0% {
+    border-color: rgba(224, 138, 138, 0.75);
     background: rgba(224, 138, 138, 0.16);
-    box-shadow:
-      inset 0 0 0 2px rgba(224, 138, 138, 0.75),
-      0 0 24px rgba(224, 138, 138, 0.28);
+    box-shadow: 0 -2px 24px rgba(224, 138, 138, 0.28);
   }
   35% {
+    border-color: rgba(232, 200, 119, 0.65);
     background: rgba(232, 200, 119, 0.12);
-    box-shadow:
-      inset 0 0 0 2px rgba(232, 200, 119, 0.65),
-      0 0 18px rgba(232, 200, 119, 0.28);
+    box-shadow: 0 -2px 18px rgba(232, 200, 119, 0.28);
   }
   100% {
     background: transparent;
