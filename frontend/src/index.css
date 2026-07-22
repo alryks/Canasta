@@ -581,6 +581,7 @@ select.input:focus {
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   position: relative;
+  isolation: isolate;
   flex: none;
   user-select: none;
   font-family: var(--font-display);
@@ -624,6 +625,7 @@ select.input:focus {
 
 .card-index {
   position: absolute;
+  z-index: 2;
   top: 3px;
   left: 4px;
   font-size: calc(var(--card-w) * 0.19);
@@ -638,6 +640,7 @@ select.input:focus {
 .playing-card.is-face::after {
   content: attr(data-label);
   position: absolute;
+  z-index: 2;
   bottom: 3px;
   right: 4px;
   font-size: calc(var(--card-w) * 0.19);
@@ -649,6 +652,7 @@ select.input:focus {
 
 .card-center {
   position: absolute;
+  z-index: 2;
   inset: 0;
   display: flex;
   flex-direction: column;
@@ -700,7 +704,7 @@ select.input:focus {
   content: '';
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 1;
   border-radius: inherit;
   background: var(--gold-light);
   opacity: 0.04;
@@ -737,8 +741,8 @@ select.input:focus {
 }
 
 .playing-card.is-small {
-  --card-w: 58px;
-  --card-h: 82px;
+  --card-w: var(--table-card-w);
+  --card-h: var(--table-card-h);
 }
 
 .playing-card.is-selectable {
@@ -753,7 +757,7 @@ select.input:focus {
   content: '';
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 1;
   border-radius: inherit;
   background: var(--gold-light);
   opacity: 0.24;
@@ -1095,8 +1099,8 @@ select.input:focus {
 }
 
 .discard-empty {
-  width: 74px;
-  height: 106px;
+  width: var(--table-card-w);
+  height: var(--table-card-h);
   border-radius: var(--radius-card);
   border: 1px dashed rgba(255, 255, 255, 0.25);
 }
@@ -1139,17 +1143,9 @@ select.input:focus {
   width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  /* useFitScale stops shrinking cards below its minScale floor -- past that
-     point the shell is deliberately taller than this box, and this scrolls
-     to it instead of clipping it away (a team with many canastas is
-     reachable by scrolling their strip, never stuck off-screen).
-     Alignment is done via margin-auto on the shell below rather than
-     align-items: flex-end/flex-start -- cross-axis alignment pushes
-     overflow toward the *start* edge for a bottom-aligned item, and start-
-     edge overflow in a scroll container sits above/behind scrollTop 0 with
-     no way to reach it. Margin-auto collapses to 0 once the shell is
-     taller than the box, so overflow always grows toward the reachable
-     end edge instead. */
+  /* Meld cards keep the shared table-card size. Overflow is intentionally
+     handled here instead of independently scaling only this part of the
+     table and making its cards smaller than the hand, piles, and players. */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1157,9 +1153,6 @@ select.input:focus {
 
 .team-zone-shell {
   display: flex;
-  /* Matches TeamZone's fixed top transform-origin: the strip is anchored
-     and clipped from the same edge it visually scales from, so the visible
-     slice is always the real (scaled) content instead of blank overshoot. */
   align-items: flex-start;
   justify-content: center;
   width: 100%;
@@ -1193,6 +1186,14 @@ select.input:focus {
   white-space: nowrap;
 }
 
+.team-zone-heading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 1rem;
+}
+
 .meld-row {
   display: flex;
   flex-wrap: wrap;
@@ -1217,6 +1218,130 @@ select.input:focus {
   --card-h: var(--table-card-h);
 }
 
+/* Each team gets a free-positioning half of the whole table. Melds start as
+   three-card piles and expand independently. */
+.free-table-layout .table-felt {
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas:
+    'opp-melds opp-melds opp-melds'
+    'left center right'
+    'own-melds own-melds own-melds';
+  row-gap: 0;
+}
+
+.free-table-layout .team-zone {
+  position: relative;
+  z-index: 3;
+  justify-content: stretch;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.free-table-layout .team-zone-top {
+  grid-area: opp-melds;
+}
+
+.free-table-layout .team-zone-bottom {
+  grid-area: own-melds;
+}
+
+.free-table-layout .seat-slot,
+.free-table-layout .seat-slot-center {
+  position: relative;
+  z-index: 20;
+}
+
+.free-table-layout .seat-slot-top {
+  position: absolute;
+  top: clamp(0.65rem, 1.4vw, 1.2rem);
+  left: 50%;
+  z-index: 24;
+}
+
+.free-table-layout .seat-slot-left {
+  grid-area: left;
+  justify-self: start;
+}
+
+.free-table-layout .seat-slot-center {
+  grid-area: center;
+}
+
+.free-table-layout .seat-slot-right {
+  grid-area: right;
+  justify-self: end;
+}
+
+.free-table-layout .team-zone-fit,
+.free-table-layout .team-zone-top .team-zone-fit,
+.free-table-layout .team-zone-shell,
+.free-table-layout .team-zone-strip {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: visible;
+}
+
+.free-table-layout .free-meld-board {
+  position: relative;
+  display: block;
+  height: 100%;
+  min-height: 0;
+  pointer-events: none;
+}
+
+.free-table-layout .free-meld-board > li {
+  position: absolute;
+  left: var(--free-x);
+  top: var(--free-y);
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+
+.free-table-layout .free-meld-board > li.is-expanded {
+  z-index: 8;
+}
+
+.free-table-layout .free-meld-board > li.is-frontmost {
+  z-index: 30;
+}
+
+.free-table-layout .free-meld-board > li.is-dragging {
+  cursor: grabbing;
+}
+
+.free-table-layout .meld-stack.is-compact {
+  width: calc(var(--table-card-w) + 1.4rem);
+  cursor: pointer;
+}
+
+.free-table-layout .meld-stack.is-compact .canasta-pile {
+  overflow: visible;
+}
+
+.free-table-layout .team-zone-heading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.free-table-layout .team-zone-top .team-zone-heading {
+  bottom: 0;
+}
+
+.free-table-layout .team-zone-bottom .team-zone-heading {
+  top: 0;
+}
+
 @keyframes team-zone-flash {
   0% {
     filter: drop-shadow(0 0 12px rgba(232, 200, 119, 0.5));
@@ -1233,10 +1358,15 @@ select.input:focus {
   gap: 0.2rem;
   border-radius: var(--radius-panel);
   padding: 0.34rem 0.44rem 0.28rem;
-  background: rgba(0, 0, 0, 0.22);
-  border: 2px dashed rgba(255, 255, 255, 0.35);
+  background: transparent;
+  border: 2px solid transparent;
   position: relative;
   max-width: 100%;
+}
+
+fieldset.meld-stack {
+  min-inline-size: 0;
+  margin: 0;
 }
 
 /* Overlapping strip showing every card of the meld -- each corner index
@@ -1273,7 +1403,7 @@ select.input:focus {
   content: '';
   position: absolute;
   inset: 2px;
-  z-index: 3;
+  z-index: 1;
   border-radius: calc(var(--radius-card) - 2px);
   box-shadow: inset 0 12px 14px -10px rgba(0, 0, 0, 0.42);
   pointer-events: none;
@@ -1300,22 +1430,27 @@ select.input:focus {
   max-width: 9rem;
 }
 
-.meld-status-badge {
+.meld-status-legend {
+  float: none;
+  width: auto;
+  max-width: calc(100% - 1rem);
+  margin: 0 auto -0.7rem;
   font-size: 0.7rem;
-  padding: 0.06em 0.5em;
-  border-radius: 999px;
-  border: 1px solid currentColor;
+  line-height: 1;
+  padding: 0 0.55em;
+  background: transparent;
+  white-space: nowrap;
 }
 
-.meld-status-badge.status-clean {
+.meld-status-legend.status-clean {
   color: #7fd6a4;
 }
 
-.meld-status-badge.status-dirty {
+.meld-status-legend.status-dirty {
   color: var(--danger-light);
 }
 
-.meld-status-badge.status-wild {
+.meld-status-legend.status-wild {
   color: #cfa3ec;
 }
 
@@ -1342,6 +1477,7 @@ select.input:focus {
 }
 
 .meld-stack.is-drop-target {
+  border-style: solid;
   border-color: var(--gold-light);
   box-shadow: 0 0 14px rgba(232, 200, 119, 0.6);
 }
@@ -1391,8 +1527,14 @@ select.input:focus {
   padding: 0.34rem 0.42rem 0.26rem;
 }
 
-.meld-stack.is-collapsed.is-drop-target .canasta-top-card .playing-card {
-  box-shadow: 0 0 10px rgba(232, 200, 119, 0.55);
+fieldset.meld-stack {
+  margin-top: -7px;
+  padding-top: calc(0.34rem + 7px);
+}
+
+fieldset.meld-stack.is-collapsed {
+  margin-top: -7px;
+  padding-top: calc(0.34rem + 7px);
 }
 
 .canasta-pile-btn {
@@ -1400,35 +1542,6 @@ select.input:focus {
   border: 0;
   padding: 0;
   cursor: pointer;
-  display: block;
-}
-
-.canasta-pile {
-  position: relative;
-  display: block;
-  width: 92px;
-  height: 124px;
-}
-
-.canasta-pile .playing-card {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-.canasta-pile .playing-card:nth-child(1) {
-  top: 10px;
-  left: 10px;
-}
-
-.canasta-pile .playing-card:nth-child(2) {
-  top: 5px;
-  left: 5px;
-}
-
-.canasta-top-card {
-  position: absolute;
-  inset: 0;
   display: block;
 }
 
@@ -1440,39 +1553,12 @@ select.input:focus {
   display: none;
 }
 
-.canasta-count {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  z-index: 2;
-  font-family: var(--font-ui);
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink);
-  background: rgba(0, 0, 0, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 999px;
-  padding: 0.05em 0.4em;
-}
-
 .canasta-pile-btn:focus-visible .canasta-top-card .playing-card {
   box-shadow: 0 0 10px rgba(232, 200, 119, 0.55);
 }
 
-.canasta-collapse-btn {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  border-radius: 999px;
-  color: var(--ink-dim);
-  font-family: var(--font-ui);
-  font-size: 0.6rem;
-  padding: 0.05em 0.5em;
+.meld-stack:not(.is-collapsed)[role='button'] {
   cursor: pointer;
-}
-
-.canasta-collapse-btn:hover {
-  color: var(--ink);
-  border-color: rgba(255, 255, 255, 0.5);
 }
 
 /* ---------- Threshold indicator ---------- */
@@ -1692,7 +1778,7 @@ select.input:focus {
   --hand-card-w: var(--table-card-w);
   --hand-card-h: var(--table-card-h);
   align-self: center;
-  width: min(100%, 1180px);
+  width: min(100%, 820px);
   padding: 0 0.35rem env(safe-area-inset-bottom, 0);
   min-height: 0;
   border: 1px solid rgba(255, 255, 255, 0.68);
@@ -1714,7 +1800,7 @@ select.input:focus {
   box-shadow: 0 -8px 24px rgba(201, 160, 78, 0.22);
 }
 
-.hand-dock.is-my-turn.is-awaiting-draw {
+.hand-dock.is-my-turn.is-action-phase {
   animation: turn-attention-pulse 1.35s ease-in-out infinite;
 }
 
@@ -1722,6 +1808,13 @@ select.input:focus {
 .hand-dock:focus-within,
 .hand-dock.is-rollback-notice {
   transform: translateY(0);
+}
+
+/* Once a card has actually left the hand, collapse the dock even though the
+   pointer and keyboard focus may still be inside it. This frees the lower
+   play area while the detached drag preview remains under the pointer. */
+.hand-dock.is-dragging-card {
+  transform: translateY(calc(var(--hand-card-h) - 2.25rem));
 }
 
 .hand-dock.is-rollback-notice {
@@ -1932,6 +2025,10 @@ select.input:focus {
 .hand-dock:focus-within .hand-tray,
 .hand-dock.is-rollback-notice .hand-tray {
   --hand-overlap: var(--hand-open-overlap);
+}
+
+.hand-dock.is-dragging-card .hand-tray {
+  --hand-overlap: 0.24;
 }
 
 .btn-compact {
@@ -2429,7 +2526,7 @@ select.input:focus {
 
   .seat-name-tag.is-turn.is-awaiting-draw,
   .pile.is-actionable,
-  .hand-dock.is-my-turn.is-awaiting-draw {
+  .hand-dock.is-my-turn.is-action-phase {
     animation: none;
   }
 }
@@ -2629,6 +2726,23 @@ select.input:focus {
 
 /* ---------- Responsive ---------- */
 
+/* Medium displays and laptop-height viewports use one shared card size. */
+@media (max-width: 1599px), (max-height: 899px) {
+  :root {
+    --table-card-w: 64px;
+    --table-card-h: 92px;
+  }
+}
+
+/* Below this point cards remain readable; layout, overlap and collapsing take
+   over instead of shrinking individual card consumers any further. */
+@media (max-width: 1099px), (max-height: 719px) {
+  :root {
+    --table-card-w: 56px;
+    --table-card-h: 80px;
+  }
+}
+
 @media (max-height: 760px) {
   .seat-slot-top {
     left: 26%;
@@ -2641,11 +2755,6 @@ select.input:focus {
 }
 
 @media (max-width: 860px) {
-  :root {
-    --table-card-w: 56px;
-    --table-card-h: 80px;
-  }
-
   .table-frame {
     margin: 0.15rem;
     padding: 0.3rem;
@@ -2663,18 +2772,13 @@ select.input:focus {
     gap: 0.3rem;
   }
 
-  .playing-card.is-small {
-    --card-w: 48px;
-    --card-h: 68px;
-  }
-
   .meld-cards li {
     margin-left: -22px;
   }
 
   .discard-empty {
-    width: 56px;
-    height: 80px;
+    width: var(--table-card-w);
+    height: var(--table-card-h);
   }
 
   .seat-slot-center {
@@ -2712,5 +2816,12 @@ select.input:focus {
   .score-card {
     min-width: 6.5rem;
     padding: 0.35rem 0.7rem;
+  }
+}
+
+@media (max-height: 760px) {
+  .free-table-layout .team-zone-top {
+    width: 100%;
+    justify-self: stretch;
   }
 }

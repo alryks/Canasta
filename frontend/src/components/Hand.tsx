@@ -13,7 +13,7 @@ interface HandProps {
   selectedIds: string[]
   newCardIds?: string[]
   isMyTurn?: boolean
-  isAwaitingDraw?: boolean
+  isActionPhase?: boolean
   isRollbackNotice?: boolean
   isDealing?: boolean
   progress?: ReactNode
@@ -44,7 +44,7 @@ export function Hand({
   selectedIds,
   newCardIds = [],
   isMyTurn = false,
-  isAwaitingDraw = false,
+  isActionPhase = false,
   isRollbackNotice = false,
   isDealing = false,
   progress,
@@ -55,6 +55,7 @@ export function Hand({
   onCardDrop,
 }: HandProps) {
   const draggingCardId = useDragStore((s) => (s.origin === 'hand' ? s.cardId : null))
+  const isDraggingHandCard = draggingCardId !== null
   const isHandDropTarget = useDragStore((s) => s.hoveredZone === 'hand' && s.origin === 'discard')
   const reorderTarget = useDragStore((s) =>
     s.origin === 'hand' && s.hoveredZone?.startsWith('handslot:')
@@ -67,8 +68,10 @@ export function Hand({
   return (
     <section
       className={`hand-dock${isMyTurn ? ' is-my-turn' : ''}${
-        isAwaitingDraw ? ' is-awaiting-draw' : ''
-      }${isRollbackNotice ? ' is-rollback-notice' : ''}${isDealing ? ' is-dealing' : ''}`}
+        isActionPhase ? ' is-action-phase' : ''
+      }${isRollbackNotice ? ' is-rollback-notice' : ''}${isDealing ? ' is-dealing' : ''}${
+        isDraggingHandCard ? ' is-dragging-card' : ''
+      }`}
       aria-label="hand-area"
     >
       <div className="hand-toolbar">

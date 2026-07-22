@@ -117,3 +117,38 @@ export function canastaStatus(meld: Meld): CanastaStatus {
   if (wildCount === cards.length) return 'wild'
   return 'dirty'
 }
+
+export function canAddCardToMeld(meld: Meld, card: Card): boolean {
+  const cards = meld.slots.filter((slot): slot is Card => slot !== null)
+  if (cards.length >= 7 || card.rank === '3') return false
+
+  if (meld.kind === 'WILD_CANASTA') return isWildRank(card.rank)
+
+  if (meld.kind === 'SET') {
+    if (!isWildRank(card.rank)) return card.rank === meld.rank_or_suit_anchor
+    const wildCount = cards.filter((existing) => isWildRank(existing.rank)).length
+    return wildCount + 1 <= cards.length - wildCount
+  }
+
+  const anchor = parseSequenceAnchor(meld.rank_or_suit_anchor)
+  if (!anchor) return false
+  if (isWildRank(card.rank)) {
+    return anchor.startIndex > 0 || anchor.startIndex + cards.length < SEQUENCE_RANKS.length
+  }
+  if (card.suit !== anchor.suit) return false
+
+  const newRankIndex = SEQUENCE_RANKS.indexOf(card.rank)
+  if (newRankIndex === -1) return false
+  const naturalRankIndexes = cards
+    .filter((existing) => !isWildRank(existing.rank))
+    .map((existing) => SEQUENCE_RANKS.indexOf(existing.rank))
+  if (naturalRankIndexes.includes(newRankIndex)) return false
+
+  const indexes = [...naturalRankIndexes, newRankIndex]
+  const low = Math.min(...indexes)
+  const high = Math.max(...indexes)
+  const newSize = cards.length + 1
+  const startMin = Math.max(0, high - (newSize - 1))
+  const startMax = Math.min(low, SEQUENCE_RANKS.length - newSize)
+  return startMin <= startMax
+}

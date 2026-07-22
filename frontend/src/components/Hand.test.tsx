@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { Hand } from './Hand'
 import type { Card } from '../lib/protocol'
+import { useDragStore } from '../stores/dragStore'
 
 const cards: Card[] = [
   { id: 'c1', rank: '7', suit: 'HEARTS' },
@@ -36,10 +37,7 @@ describe('Hand', () => {
     renderHand({ selectedIds: ['c1'] })
 
     expect(screen.getByRole('button', { name: '7♥' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('button', { name: 'JOKER' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    )
+    expect(screen.getByRole('button', { name: 'JOKER' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('toggles a card on click', async () => {
@@ -66,18 +64,18 @@ describe('Hand', () => {
     expect(onToggleAutoSort).toHaveBeenCalledTimes(1)
   })
 
-  it('uses a pulsing turn state only while waiting for a draw', () => {
-    const { rerender } = renderHand({ isMyTurn: true, isAwaitingDraw: true })
+  it('uses a pulsing turn state only after drawing', () => {
+    const { rerender } = renderHand({ isMyTurn: true, isActionPhase: true })
     const hand = screen.getByLabelText('hand-area')
 
-    expect(hand).toHaveClass('is-my-turn', 'is-awaiting-draw')
+    expect(hand).toHaveClass('is-my-turn', 'is-action-phase')
 
     rerender(
       <Hand
         cards={cards}
         selectedIds={[]}
         isMyTurn
-        isAwaitingDraw={false}
+        isActionPhase={false}
         autoSort={false}
         onToggleAutoSort={vi.fn()}
         onToggleCard={vi.fn()}
@@ -85,7 +83,18 @@ describe('Hand', () => {
       />,
     )
     expect(hand).toHaveClass('is-my-turn')
-    expect(hand).not.toHaveClass('is-awaiting-draw')
+    expect(hand).not.toHaveClass('is-action-phase')
+  })
+
+  it('collapses while a card is being dragged from the hand', () => {
+    renderHand()
+    const hand = screen.getByLabelText('hand-area')
+
+    act(() => useDragStore.getState().startDrag('c1', 'hand', 10, 10))
+    expect(hand).toHaveClass('is-dragging-card')
+
+    act(() => useDragStore.getState().endDrag())
+    expect(hand).not.toHaveClass('is-dragging-card')
   })
 
   it('acknowledges each received card when it is first hovered', async () => {

@@ -17,11 +17,14 @@ interface MeldStackProps {
   meld: Meld
   isOwnTeam: boolean
   canDragAdd?: boolean
+  canDropCard?: boolean
   canStealFrom: boolean
+  compact?: boolean
+  singleCardCompact?: boolean
+  stackCompact?: boolean
+  onToggleCompact?: () => void
   highlightedCardIds?: string[]
   isRecentAction?: boolean
-  isStealTarget: (cardId: string) => boolean
-  onSelectStealTarget: (cardId: string) => void
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -30,8 +33,16 @@ const STATUS_LABELS: Record<string, string> = {
   wild: 'Козырная канаста',
 }
 
+const COLLAPSED_STATUS_LABELS: Record<string, string> = {
+  clean: 'Чистая',
+  dirty: 'Грязная',
+  wild: 'Козырная',
+}
+
+const CANASTA_PILE_DEPTH = 3
+
 function meldCaption(meld: Meld, cards: Card[]): string {
-  if (meld.kind === 'SET') return `${meld.rank_or_suit_anchor} ×${cards.length}`
+  if (meld.kind === 'SET') return `${meld.rank_or_suit_anchor}×${cards.length}`
   if (meld.kind === 'SEQUENCE') {
     const anchor = parseSequenceAnchor(meld.rank_or_suit_anchor)
     if (anchor) {
@@ -40,14 +51,13 @@ function meldCaption(meld: Meld, cards: Card[]): string {
       return `${suitSymbol(anchor.suit)} ${from}–${to}`
     }
   }
-  return `Козыри ×${cards.length}`
+  return `Козыри×${cards.length}`
 }
 
 // Every card of an in-progress meld is laid out in an overlapping strip, so
 // it's always visible which rank each wild card is standing in for (the user
 // picks a side when adding one). Own-team melds are drop zones for
-// add_to_meld; opponents' wild cards are themselves steal_wild drop/click
-// targets.
+// add_to_meld; opponents' wild cards are steal_wild drop targets.
 //
 // A completed canasta collapses into a tight face-down pile so a table full
 // of canastas doesn't shrink everything else (FR follow-up). It expands on
@@ -57,16 +67,19 @@ export function MeldStack({
   meld,
   isOwnTeam,
   canDragAdd = false,
+  canDropCard = false,
   canStealFrom,
+  compact = false,
+  singleCardCompact = false,
+  stackCompact = false,
+  onToggleCompact,
   highlightedCardIds = [],
   isRecentAction = false,
-  isStealTarget,
-  onSelectStealTarget,
 }: MeldStackProps) {
   const [manuallyExpanded, setManuallyExpanded] = useState(false)
   const dropZoneId = `meld:${meld.id}`
   const hoveredZone = useDragStore((s) => (s.origin === 'hand' ? s.hoveredZone : null))
-  const isDropTarget = hoveredZone === dropZoneId
+  const isDropTarget = canDropCard && hoveredZone === dropZoneId
   const cards = meld.slots.filter((c): c is Card => c !== null)
   const highlightedCards = new Set(highlightedCardIds)
   const status = canastaStatus(meld)
@@ -78,58 +91,126 @@ export function MeldStack({
   )
   const collapsedStealZone =
     stealableWilds.length === 1 ? `wild:${meld.id}:${stealableWilds[0].id}` : null
-  const isCollapsedStealTarget = collapsedStealZone !== null && hoveredZone === collapsedStealZone
-  const collapsed = isClosedCanasta && !manuallyExpanded
+  const controlledExpansion = onToggleCompact !== undefined
+  const collapsed = isClosedCanasta && !(controlledExpansion ? !compact : manuallyExpanded)
+  const isCompactStack = stackCompact && compact
 
-  if (collapsed) {
-    const topCard = cards[cards.length - 1]
+  if (collapsed || isCompactStack) {
+    const pileDepth = singleCardCompact ? 1 : CANASTA_PILE_DEPTH
+    const pileCards = cards.slice(-pileDepth)
+    const CompactContainer: 'fieldset' | 'div' = isClosedCanasta ? 'fieldset' : 'div'
     return (
-      <div
+      <CompactContainer
         aria-label={`meld-${meld.id}`}
-        className={`meld-stack is-collapsed status-${status}${
-          isCollapsedStealTarget ? ' is-drop-target' : ''
+        className={`meld-stack is-collapsed status-${status}${compact ? ' is-compact' : ''}${
+          isDropTarget ? ' is-drop-target' : ''
         }${isRecentAction ? ' is-recent-action' : ''}${
           isRecentAction && isClosedCanasta ? ' is-new-canasta' : ''
         }`}
       >
+        {isClosedCanasta && (
+          <legend className={`meld-status-legend status-${status}`}>
+            {COLLAPSED_STATUS_LABELS[status]}
+          </legend>
+        )}
         <button
           type="button"
           className="canasta-pile-btn"
-          onClick={() => setManuallyExpanded(true)}
-          data-drop-zone={collapsedStealZone ?? undefined}
-          aria-label={`${STATUS_LABELS[status]} ${meldCaption(meld, cards)} — показать карты`}
-          title="Показать карты канасты"
+          onClick={() => {
+            if (controlledExpansion) onToggleCompact()
+            else setManuallyExpanded(true)
+          }}
+          data-drop-zone={isOwnTeam && canDragAdd ? dropZoneId : (collapsedStealZone ?? undefined)}
+          aria-label={`${isClosedCanasta ? `${STATUS_LABELS[status]} ` : ''}${meldCaption(
+            meld,
+            cards,
+          )} — показать карты`}
+          title="Показать карты комбинации"
         >
-          <span className="canasta-pile">
-            <PlayingCard faceDown size="small" />
-            <PlayingCard faceDown size="small" />
-            <span className="canasta-top-card">
-              <PlayingCard
-                card={topCard}
-                size="small"
-                showPoints={false}
-                className={highlightedCards.has(topCard.id) ? 'is-new-card' : ''}
-                ariaLabel={cardLabel(topCard)}
-              />
-            </span>
-            <span className="canasta-count">×{cards.length}</span>
+          <span
+            className="card-pile-stack canasta-pile"
+            data-card-stack={isClosedCanasta ? 'canasta' : 'meld'}
+            data-stack-depth={pileCards.length}
+          >
+            {pileCards.map((card, index) => (
+              <span
+                key={card.id}
+                className={`card-pile-layer${
+                  index === pileCards.length - 1 ? ' canasta-top-card' : ''
+                }`}
+                style={
+                  {
+                    '--stack-layer': index,
+                    '--stack-depth': pileCards.length,
+                  } as CSSProperties
+                }
+              >
+                <PlayingCard
+                  card={card}
+                  size="small"
+                  showPoints={false}
+                  className={highlightedCards.has(card.id) ? 'is-new-card' : ''}
+                  ariaLabel={cardLabel(card)}
+                />
+              </span>
+            ))}
           </span>
         </button>
-        <span className="meld-caption">
-          <span className={`meld-status-badge status-${status}`}>{STATUS_LABELS[status]}</span>
+        <span className="meld-caption" title={meldCaption(meld, cards)}>
+          <span className="meld-caption-text">{meldCaption(meld, cards)}</span>
         </span>
-      </div>
+      </CompactContainer>
     )
   }
 
+  const compactToggleable = !isClosedCanasta && onToggleCompact !== undefined
+  const MeldContainer: 'fieldset' | 'div' = isClosedCanasta ? 'fieldset' : 'div'
+
   return (
-    <div
+    <MeldContainer
       aria-label={`meld-${meld.id}`}
-      className={`meld-stack status-${status}${isDropTarget ? ' is-drop-target' : ''}${
-        isRecentAction ? ' is-recent-action' : ''
-      }`}
+      className={`meld-stack status-${status}${compact && !isClosedCanasta ? ' is-compact' : ''}${
+        isDropTarget ? ' is-drop-target' : ''
+      }${isRecentAction ? ' is-recent-action' : ''}`}
       data-drop-zone={isOwnTeam && canDragAdd ? dropZoneId : undefined}
+      role={isClosedCanasta || compactToggleable ? 'button' : undefined}
+      tabIndex={isClosedCanasta || compactToggleable ? 0 : undefined}
+      title={
+        isClosedCanasta
+          ? 'Свернуть канасту'
+          : compactToggleable
+            ? compact
+              ? 'Раскрыть комбинацию'
+              : 'Свернуть комбинацию'
+            : undefined
+      }
+      onClick={
+        isClosedCanasta
+          ? () => {
+              if (controlledExpansion) onToggleCompact()
+              else setManuallyExpanded(false)
+            }
+          : compactToggleable
+            ? onToggleCompact
+            : undefined
+      }
+      onKeyDown={
+        isClosedCanasta || compactToggleable
+          ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                if (isClosedCanasta) {
+                  if (controlledExpansion) onToggleCompact()
+                  else setManuallyExpanded(false)
+                } else onToggleCompact?.()
+              }
+            }
+          : undefined
+      }
     >
+      {isClosedCanasta && (
+        <legend className={`meld-status-legend status-${status}`}>{STATUS_LABELS[status]}</legend>
+      )}
       <ul className="meld-cards" style={{ '--meld-overlap': `${meldOverlap}px` } as CSSProperties}>
         {cards.map((card) => {
           const stealable = canStealFrom && isWildRank(card.rank)
@@ -142,11 +223,7 @@ export function MeldStack({
                     size="small"
                     wild
                     className={highlightedCards.has(card.id) ? 'is-new-card' : ''}
-                    pressed={isStealTarget(card.id)}
-                    selected={
-                      isStealTarget(card.id) || hoveredZone === `wild:${meld.id}:${card.id}`
-                    }
-                    onClick={() => onSelectStealTarget(card.id)}
+                    selected={hoveredZone === `wild:${meld.id}:${card.id}`}
                     dropZone={`wild:${meld.id}:${card.id}`}
                     ariaLabel={cardLabel(card)}
                   />
@@ -165,21 +242,7 @@ export function MeldStack({
       </ul>
       <span className="meld-caption" title={meldCaption(meld, cards)}>
         <span className="meld-caption-text">{meldCaption(meld, cards)}</span>
-        {isClosedCanasta && (
-          <>
-            <span className={`meld-status-badge status-${status}`}>{STATUS_LABELS[status]}</span>
-            <button
-              type="button"
-              className="canasta-collapse-btn"
-              onClick={() => setManuallyExpanded(false)}
-              aria-label={`Свернуть канасту ${meldCaption(meld, cards)}`}
-              title="Свернуть канасту"
-            >
-              Свернуть
-            </button>
-          </>
-        )}
       </span>
-    </div>
+    </MeldContainer>
   )
 }

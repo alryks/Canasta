@@ -18,6 +18,7 @@ import { ThresholdIndicator } from '../components/ThresholdIndicator'
 import type { WildSide } from '../components/WildSideChooser'
 import { WildSideChooser } from '../components/WildSideChooser'
 import {
+  canAddCardToMeld,
   cardPoints,
   compareForHand,
   isWildRank,
@@ -45,11 +46,6 @@ import {
   useHandOrderStore,
 } from '../stores/handOrderStore'
 import { useLobbyStore } from '../stores/lobbyStore'
-
-interface StealTarget {
-  meldId: string
-  wildCardId: string
-}
 
 interface PendingWildAdd {
   meldId: string
@@ -181,7 +177,6 @@ export function GamePage() {
   const clearLatestFeedbackEvent = useGameFeedbackStore((s) => s.clearLatestEvent)
 
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([])
-  const [stealTarget, setStealTarget] = useState<StealTarget | null>(null)
   const [pendingWildAdd, setPendingWildAdd] = useState<PendingWildAdd | null>(null)
   const [createWildSide, setCreateWildSide] = useState<WildSide>('low')
   const [offlineCountdown, setOfflineCountdown] = useState<number | null>(null)
@@ -295,6 +290,7 @@ export function GamePage() {
     () => orderedHand(myHand, syncedHandOrder),
     [myHand, syncedHandOrder],
   )
+  const displayedMelds = gameState?.melds ?? {}
 
   const connectionBanner =
     connectionStatus === 'open' ? null : (
@@ -346,7 +342,6 @@ export function GamePage() {
     gameOver,
     viewerTeamId,
     selectedCardCount: selectedCardIds.length,
-    hasStealTarget: stealTarget !== null,
   })
 
   const topDiscardCard = gameState.discard_pile[gameState.discard_pile.length - 1]
@@ -403,7 +398,11 @@ export function GamePage() {
         if (!ui.canDiscard) return
         send('discard', { card_id: cardId })
       } else if (zone.startsWith('meld:')) {
-        requestAddToMeld(zone.slice('meld:'.length), [cardId])
+        const meldId = zone.slice('meld:'.length)
+        const meld = ownMelds.find((candidate) => candidate.id === meldId)
+        const card = cardsById.get(cardId)
+        if (!meld || !card || !canAddCardToMeld(meld, card)) return
+        requestAddToMeld(meldId, [cardId])
       } else if (zone.startsWith('wild:')) {
         const [, meldId, wildCardId] = zone.split(':')
         send('steal_wild', {
@@ -423,14 +422,6 @@ export function GamePage() {
     )
   }
 
-  function selectStealTarget(meldId: string, wildCardId: string) {
-    setStealTarget((current) =>
-      current?.meldId === meldId && current.wildCardId === wildCardId
-        ? null
-        : { meldId, wildCardId },
-    )
-  }
-
   function handleCreateMeld() {
     captureCardOrigins(selectedCardIds)
     send('create_meld', {
@@ -440,19 +431,8 @@ export function GamePage() {
     setSelectedCardIds([])
   }
 
-  function handleStealWild() {
-    if (!stealTarget) return
-    send('steal_wild', {
-      meld_id: stealTarget.meldId,
-      wild_card_id: stealTarget.wildCardId,
-      replacement_card_id: selectedCardIds[0],
-    })
-    setSelectedCardIds([])
-    setStealTarget(null)
-  }
-
   return (
-    <main className="table-frame">
+    <main className="table-frame free-table-layout">
       {connectionBanner}
 
       {gameOver && gameOverVisible && winnerTeamId !== null && (
@@ -540,7 +520,7 @@ export function GamePage() {
               )}
             </div>
 
-            {Object.entries(gameState.melds)
+            {Object.entries(displayedMelds)
               .filter(([teamId]) => teamId !== viewerTeamId)
               .map(([teamId, melds]) => (
                 <TeamZone
@@ -550,11 +530,9 @@ export function GamePage() {
                   isOwnTeam={false}
                   canDragAdd={false}
                   canStealFrom={isMyTurn && phase === 'ACT'}
-                  stealTarget={stealTarget}
                   highlightedTeamId={latestFeedbackEvent?.meldId ? null : recentTeamId}
                   highlightedCardIds={latestFeedbackEvent?.cardIds ?? []}
                   highlightedMeldId={latestFeedbackEvent?.meldId}
-                  onSelectStealTarget={selectStealTarget}
                 />
               ))}
 
@@ -669,7 +647,7 @@ export function GamePage() {
               )}
             </div>
 
-            {Object.entries(gameState.melds)
+            {Object.entries(displayedMelds)
               .filter(([teamId]) => teamId === viewerTeamId)
               .map(([teamId, melds]) => (
                 <TeamZone
@@ -678,12 +656,11 @@ export function GamePage() {
                   melds={melds}
                   isOwnTeam
                   canDragAdd={ui.dragActEnabled}
+                  handCards={myHand}
                   canStealFrom={false}
-                  stealTarget={stealTarget}
                   highlightedTeamId={latestFeedbackEvent?.meldId ? null : recentTeamId}
                   highlightedCardIds={latestFeedbackEvent?.cardIds ?? []}
                   highlightedMeldId={latestFeedbackEvent?.meldId}
-                  onSelectStealTarget={selectStealTarget}
                 />
               ))}
           </div>
@@ -706,13 +683,11 @@ export function GamePage() {
           visible={isMyTurn && !gameOver}
           phase={phase}
           canCreateMeld={ui.canCreateMeld}
-          canStealWild={stealTarget !== null}
           selectedCount={selectedCardIds.length}
           createWildPlacement={createWildPlacement}
           createWildSide={createWildSide}
           onCreateWildSideChange={setCreateWildSide}
           onCreateMeld={handleCreateMeld}
-          onStealWild={handleStealWild}
         />
 
         <Hand
@@ -721,7 +696,7 @@ export function GamePage() {
           newCardIds={newCardIds}
           onAcknowledgeNewCard={acknowledgeNewCard}
           isMyTurn={isMyTurn}
-          isAwaitingDraw={isMyTurn && phase === 'DRAW'}
+          isActionPhase={isMyTurn && phase === 'ACT'}
           isRollbackNotice={latestFeedbackEvent?.type === 'rollback' || isRollbackError}
           isDealing={isDealing}
           progress={
