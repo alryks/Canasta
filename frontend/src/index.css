@@ -849,6 +849,21 @@ select.input:focus {
   flex-direction: column;
   gap: 0.25rem;
   pointer-events: none;
+  transform: translateY(calc(var(--table-card-h) - 2.25rem));
+  transition: transform 0.18s ease;
+}
+
+.game-command-dock.is-expanded,
+.game-command-dock:has(.hand-dock:hover),
+.game-command-dock:has(.hand-dock :focus-visible),
+.game-command-dock:has(.hand-dock.is-rollback-notice) {
+  transform: translateY(0);
+}
+
+/* Keep the whole command dock collapsed while a detached hand card is being
+   dragged, even if the pointer still intersects one of its controls. */
+.game-command-dock:has(.hand-dock.is-dragging-card) {
+  transform: translateY(calc(var(--table-card-h) - 2.25rem));
 }
 
 .game-side-tools {
@@ -1786,9 +1801,7 @@ fieldset.meld-stack.is-collapsed {
   border-radius: var(--radius-panel) var(--radius-panel) 0 0;
   box-shadow: 0 -2px 14px rgba(255, 255, 255, 0.2);
   pointer-events: auto;
-  transform: translateY(calc(var(--hand-card-h) - 2.25rem));
   transition:
-    transform 0.18s ease,
     border-color 0.18s ease,
     box-shadow 0.18s ease,
     background 0.18s ease;
@@ -1802,19 +1815,6 @@ fieldset.meld-stack.is-collapsed {
 
 .hand-dock.is-my-turn.is-action-phase {
   animation: turn-attention-pulse 1.35s ease-in-out infinite;
-}
-
-.hand-dock:hover,
-.hand-dock:focus-within,
-.hand-dock.is-rollback-notice {
-  transform: translateY(0);
-}
-
-/* Once a card has actually left the hand, collapse the dock even though the
-   pointer and keyboard focus may still be inside it. This frees the lower
-   play area while the detached drag preview remains under the pointer. */
-.hand-dock.is-dragging-card {
-  transform: translateY(calc(var(--hand-card-h) - 2.25rem));
 }
 
 .hand-dock.is-rollback-notice {
@@ -2021,6 +2021,7 @@ fieldset.meld-stack.is-collapsed {
   overflow: visible;
 }
 
+.game-command-dock.is-expanded .hand-tray,
 .hand-dock:hover .hand-tray,
 .hand-dock:focus-within .hand-tray,
 .hand-dock.is-rollback-notice .hand-tray {
@@ -2105,7 +2106,9 @@ fieldset.meld-stack.is-collapsed {
 .game-action-panel {
   display: flex;
   flex-direction: column;
+  align-self: center;
   gap: 0.4rem;
+  width: min(100%, 820px);
   padding: 0;
   background: transparent;
   border: none;
@@ -2217,9 +2220,10 @@ fieldset.meld-stack.is-collapsed {
 .wild-side-option {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
   gap: 0.1rem;
-  text-align: left;
+  text-align: center;
   min-width: 0;
 }
 

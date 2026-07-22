@@ -253,11 +253,12 @@ describe('GamePage', () => {
 
   it('creates a meld from selected hand cards and clears the selection', async () => {
     useGameStore.getState().applyGameState(baseGameState())
-    render(<GamePage />)
+    const { container } = render(<GamePage />)
 
     await userEvent.click(screen.getByText('7♥'))
     await userEvent.click(screen.getByText('7♣'))
     await userEvent.click(screen.getByText('7♠'))
+    expect(container.querySelector('.game-command-dock')).toHaveClass('is-expanded')
     await userEvent.click(screen.getByRole('button', { name: /Новая комбинация/ }))
 
     expect(send).toHaveBeenCalledWith('create_meld', {
@@ -265,6 +266,7 @@ describe('GamePage', () => {
       wild_side: 'low',
     })
     expect(screen.getByRole('button', { name: '7♥' })).toHaveAttribute('aria-pressed', 'false')
+    expect(container.querySelector('.game-command-dock')).not.toHaveClass('is-expanded')
   })
 
   it('shows exact wild placement choices when creating an ambiguous sequence', async () => {

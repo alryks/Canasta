@@ -678,7 +678,7 @@ export function GamePage() {
         </aside>
       </div>
 
-      <div className="game-command-dock">
+      <div className={`game-command-dock${ui.canCreateMeld ? ' is-expanded' : ''}`}>
         <GameActionPanel
           visible={isMyTurn && !gameOver}
           phase={phase}
