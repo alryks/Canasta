@@ -106,6 +106,9 @@ class GameState:
     scores: dict[str, int]
     current_deal: DealState | None = None
     deal_history: list[DealSummary] = field(default_factory=list)
+    # Unix timestamp until which a completed deal remains on the table.
+    # While set, no new deal exists and all gameplay intents are rejected.
+    between_deals_until: float | None = None
 
 
 def start_new_deal(

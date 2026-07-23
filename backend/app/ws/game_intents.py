@@ -9,12 +9,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import time
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Deal as DealRow
-from app.db.models import Game, Player
+from app.db.models import Game
 from app.engine.actions import (
     Action,
     AddToMeld,
@@ -30,7 +30,6 @@ from app.engine.engine import (
     GameState,
     apply_action,
     final_deal_scores,
-    start_new_deal,
 )
 from app.engine.models import Card
 from app.engine.errors import IllegalActionError
@@ -47,6 +46,8 @@ GAME_INTENTS = frozenset(
         "concede_penalty",
     }
 )
+
+BETWEEN_DEALS_SECONDS = 10.0
 
 
 @dataclass
@@ -214,23 +215,12 @@ async def _complete_deal(
         game.winner_team_id = winner_team_id
         game.finished_at = datetime.now(timezone.utc)
         game_state.current_deal = None
+        game_state.between_deals_until = None
     else:
-        players = (
-            await session.scalars(select(Player).where(Player.game_id == game.id))
-        ).all()
-        seated = sorted(players, key=lambda p: p.seat)
-        player_order = [p.id for p in seated]
-        player_team = {p.id: p.team_id for p in seated}
-        # rules.md section 5: the deal rotates clockwise, so deal N is opened
-        # by the player at seat (N-1) % 4 -- deal 1 by seat 0, deal 2 by seat 1...
-        first_player_id = player_order[game.current_deal_number % len(player_order)]
-        game_state.current_deal = start_new_deal(
-            player_order,
-            player_team,
-            game_state.scores,
-            first_player_id=first_player_id,
-        )
-        game.current_deal_number += 1
+        # Keep the completed deal in Redis during the visual table reset.
+        # Its deal_over flag rejects every gameplay action. The router creates
+        # and broadcasts the next deal only once this server deadline passes.
+        game_state.between_deals_until = time.time() + BETWEEN_DEALS_SECONDS
 
     await session.commit()
 
@@ -241,6 +231,7 @@ async def _complete_deal(
             "scores_breakdown": score_breakdown,
             "team_scores_after": team_scores_after,
             "next_deal": winner_team_id is None,
+            "transition_ends_at": game_state.between_deals_until,
         },
     }
     return deal_result_message, winner_team_id
@@ -263,6 +254,8 @@ async def apply_game_intent(
         game_state = store.get_state(game.id)
         if game_state is None or game_state.current_deal is None:
             raise IllegalActionError("no active deal")
+        if game_state.between_deals_until is not None:
+            raise IllegalActionError("next deal has not started yet")
 
         deal = game_state.current_deal
         before_hand = list(deal.hands[sender_id])

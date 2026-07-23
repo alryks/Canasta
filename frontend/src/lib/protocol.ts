@@ -123,6 +123,7 @@ export interface DealResultMessage {
     scores_breakdown: Record<string, DealScoreBreakdown>
     team_scores_after: Record<string, number>
     next_deal: boolean
+    transition_ends_at?: number | null
     last_action?: GameActionData | null
   }
 }

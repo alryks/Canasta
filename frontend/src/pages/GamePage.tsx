@@ -1,10 +1,11 @@
 import { Swords } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { MdOutlineHandshake } from 'react-icons/md'
 import { ChatPanel } from '../components/ChatPanel'
 import { ActionPlaybackLayer } from '../components/ActionPlaybackLayer'
 import { DealResultModal } from '../components/DealResultModal'
+import { DealTransitionLayer } from '../components/DealTransitionLayer'
 import { DragLayer } from '../components/DragLayer'
 import { ErrorToast } from '../components/ErrorToast'
 import { EventLog } from '../components/EventLog'
@@ -50,6 +51,11 @@ import { useLobbyStore } from '../stores/lobbyStore'
 interface PendingWildAdd {
   meldId: string
   cardIds: string[]
+}
+
+interface ActiveDealTransition {
+  dealNumber: number
+  durationMs: number
 }
 
 const TURN_TIMEOUT_SECONDS = 90
@@ -183,6 +189,7 @@ export function GamePage() {
   const [isDealing, setIsDealing] = useState(true)
   const [dealResultVisible, setDealResultVisible] = useState(false)
   const [gameOverVisible, setGameOverVisible] = useState(false)
+  const [dealTransition, setDealTransition] = useState<ActiveDealTransition | null>(null)
   const isDiscardDropTarget = useDragStore(
     (s) => s.hoveredZone === 'discard' && s.origin === 'hand',
   )
@@ -200,9 +207,24 @@ export function GamePage() {
 
   useEffect(() => {
     if (lastDealResult === null) return
-    const id = window.setTimeout(() => setDealResultVisible(true), 720)
-    return () => window.clearTimeout(id)
+    const transitionId = window.setTimeout(() => {
+      if (!lastDealResult.nextDeal) return
+      const durationMs = lastDealResult.transitionEndsAt
+        ? Math.max(0, lastDealResult.transitionEndsAt * 1000 - Date.now())
+        : 10_000
+      setDealTransition({ dealNumber: lastDealResult.dealNumber, durationMs })
+    }, 0)
+    const modalId = window.setTimeout(() => setDealResultVisible(true), 720)
+    return () => {
+      window.clearTimeout(transitionId)
+      window.clearTimeout(modalId)
+    }
   }, [lastDealResult])
+
+  const finishDealTransition = useCallback(() => {
+    setDealTransition(null)
+    setIsDealing(true)
+  }, [])
 
   useEffect(() => {
     if (winnerTeamId === null) return
@@ -472,6 +494,14 @@ export function GamePage() {
         )}
       </div>
 
+      {dealTransition !== null && (
+        <DealTransitionLayer
+          key={dealTransition.dealNumber}
+          durationMs={dealTransition.durationMs}
+          onComplete={finishDealTransition}
+        />
+      )}
+
       {lastDealResult && dealResultVisible && !gameOver && (
         <DealResultModal
           dealNumber={lastDealResult.dealNumber}
@@ -480,10 +510,8 @@ export function GamePage() {
           viewerTeamId={viewerTeamId}
           nextDeal={lastDealResult.nextDeal}
           onDismiss={() => {
-            const shouldDeal = lastDealResult.nextDeal
             setDealResultVisible(false)
             dismissDealResult()
-            if (shouldDeal) setIsDealing(true)
           }}
         />
       )}
@@ -509,7 +537,12 @@ export function GamePage() {
             reason={isRollbackError ? null : lastActionError}
             onDismiss={dismissActionError}
           />
-          <div className={`table-felt${isDealing ? ' is-dealing' : ''}`} aria-label="table">
+          <div
+            className={`table-felt${isDealing ? ' is-dealing' : ''}${
+              dealTransition !== null ? ' is-between-deals' : ''
+            }`}
+            aria-label="table"
+          >
             <div className="seat-slot seat-slot-top">
               {seatTag(
                 partner,
@@ -678,7 +711,11 @@ export function GamePage() {
         </aside>
       </div>
 
-      <div className={`game-command-dock${ui.canCreateMeld ? ' is-expanded' : ''}`}>
+      <div
+        className={`game-command-dock${ui.canCreateMeld ? ' is-expanded' : ''}${
+          dealTransition !== null ? ' is-between-deals' : ''
+        }`}
+      >
         <GameActionPanel
           visible={isMyTurn && !gameOver}
           phase={phase}

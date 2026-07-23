@@ -4,8 +4,10 @@ phase 3 scope only -- draw/meld/discard intents land in phase 4).
 
 from __future__ import annotations
 
+import asyncio
 import random
 import secrets
+import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, update
@@ -31,6 +33,10 @@ router = APIRouter()
 store = RedisGameStore()
 
 SEATS = (0, 1, 2, 3)
+
+# Strong references keep delayed next-deal tasks alive. A per-game slot also
+# prevents reconnects from scheduling the same transition more than once.
+_between_deal_tasks: dict[str, asyncio.Task] = {}
 
 
 class LobbyActionError(Exception):
@@ -338,6 +344,8 @@ async def _maybe_arm_turn_timer(session, game: Game, game_state: GameState) -> N
     """FR-35: if whoever's turn it now is happens to be disconnected --
     either they just dropped mid-turn, or the turn advanced to someone who
     was already offline -- start (or keep) the grace-period timer."""
+    if game_state.between_deals_until is not None:
+        return
     deal = game_state.current_deal
     if deal is None:
         return
@@ -347,6 +355,68 @@ async def _maybe_arm_turn_timer(session, game: Game, game_state: GameState) -> N
         turn_timer.arm(
             game.id, current_player_id, _make_on_expire(game.id, current_player_id)
         )
+
+
+async def _start_next_deal_after_transition(
+    game_id: str, transition_ends_at: float
+) -> None:
+    await asyncio.sleep(max(0.0, transition_ends_at - time.time()))
+
+    async with async_session() as session:
+        game = await session.get(Game, game_id)
+        if game is None or game.status != "IN_PROGRESS":
+            return
+
+        with store.lock(game_id):
+            game_state = store.get_state(game_id)
+            if (
+                game_state is None
+                or game_state.current_deal is None
+                or not game_state.current_deal.deal_over
+                or game_state.between_deals_until != transition_ends_at
+            ):
+                return
+
+            players = (
+                await session.scalars(select(Player).where(Player.game_id == game_id))
+            ).all()
+            seated = sorted(players, key=lambda player: player.seat)
+            player_order = [player.id for player in seated]
+            player_team = {player.id: player.team_id for player in seated}
+            first_player_id = player_order[game.current_deal_number % len(player_order)]
+            game_state.current_deal = start_new_deal(
+                player_order,
+                player_team,
+                game_state.scores,
+                first_player_id=first_player_id,
+            )
+            game_state.between_deals_until = None
+            game.current_deal_number += 1
+            store.set_state(game_id, game_state)
+            await session.commit()
+
+        await manager.broadcast_personalized(
+            game_id, lambda pid: build_client_game_state(game_state, pid)
+        )
+        await _maybe_arm_turn_timer(session, game, game_state)
+        await bot_runner.maybe_schedule_bot_turn(session, game, game_state)
+
+
+def _schedule_next_deal(game_id: str, transition_ends_at: float) -> None:
+    existing = _between_deal_tasks.get(game_id)
+    if existing is not None and not existing.done():
+        return
+
+    task = asyncio.create_task(
+        _start_next_deal_after_transition(game_id, transition_ends_at)
+    )
+    _between_deal_tasks[game_id] = task
+
+    def _discard(completed: asyncio.Task) -> None:
+        if _between_deal_tasks.get(game_id) is completed:
+            _between_deal_tasks.pop(game_id, None)
+
+    task.add_done_callback(_discard)
 
 
 async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) -> None:
@@ -359,6 +429,8 @@ async def _handle_skip_turn_with_penalty(session, game: Game, sender: Player) ->
         game_state = store.get_state(game.id)
         if game_state is None or game_state.current_deal is None:
             raise LobbyActionError("no active deal")
+        if game_state.between_deals_until is not None:
+            raise LobbyActionError("next deal has not started yet")
         current_player_id = game_state.current_deal.turn_state.current_player_id
         skipped_team_id = game_state.current_deal.player_team[current_player_id]
         threshold_before = game_state.current_deal.teams[
@@ -441,11 +513,9 @@ async def _handle_game_intent(
         )
         turn_timer.cancel_game(game.id)
     else:
-        await manager.broadcast_personalized(
-            game.id, lambda pid: build_client_game_state(result.game_state, pid)
-        )
-        await _maybe_arm_turn_timer(session, game, result.game_state)
-        await bot_runner.maybe_schedule_bot_turn(session, game, result.game_state)
+        transition_ends_at = result.game_state.between_deals_until
+        assert transition_ends_at is not None
+        _schedule_next_deal(game.id, transition_ends_at)
 
 
 async def _handle_intent(game_id: str, sender_id: str, message: dict) -> None:
@@ -524,6 +594,21 @@ async def game_ws(websocket: WebSocket, game_id: str, token: str) -> None:
                 await websocket.send_json(
                     build_client_game_state(game_state, player.id)
                 )
+                if game_state.between_deals_until is not None:
+                    latest = game_state.deal_history[-1]
+                    await websocket.send_json(
+                        {
+                            "type": "deal_result",
+                            "data": {
+                                "deal_number": latest.deal_number,
+                                "scores_breakdown": latest.score_breakdown,
+                                "team_scores_after": latest.team_scores_after,
+                                "next_deal": True,
+                                "transition_ends_at": game_state.between_deals_until,
+                            },
+                        }
+                    )
+                    _schedule_next_deal(game_id, game_state.between_deals_until)
 
     try:
         while True:

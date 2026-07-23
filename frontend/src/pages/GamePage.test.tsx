@@ -513,8 +513,10 @@ describe('GamePage', () => {
     render(<GamePage />)
 
     expect(await screen.findByText('Сдача №1 завершена')).toBeInTheDocument()
+    expect(screen.getByTestId('deal-transition-layer')).toBeInTheDocument()
     await userEvent.click(screen.getByText('Продолжить'))
     expect(screen.queryByText('Сдача №1 завершена')).not.toBeInTheDocument()
+    expect(screen.getByTestId('deal-transition-layer')).toBeInTheDocument()
   })
 
   it('logs notable events and sends chat messages', async () => {
